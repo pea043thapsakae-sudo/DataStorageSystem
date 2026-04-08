@@ -36,6 +36,7 @@ service cloud.firestore {
     //   - title: string (required)
     //   - status: string (required, enum: เข้าร่วม, ไม่เข้าร่วม, อื่นๆ)
     //   - reason: string (optional)
+    //   - imageUrl: string (optional)
     //
     // Collection: leaveRecords
     // Document ID: {recordId} (UUID)

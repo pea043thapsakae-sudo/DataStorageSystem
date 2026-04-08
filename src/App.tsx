@@ -26,7 +26,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { EMPLOYEES, INNOVATION_TYPES, KM_SUBTYPES, ACTIVITY_TYPES, LEAVE_TYPES } from './constants';
 import { AppState, InnovationRecord, ActivityRecord, LeaveRecord, Admin, Employee } from './types';
-import { db, auth, initAuth, handleFirestoreError, OperationType } from './firebase';
+import { db, auth, initAuth, handleFirestoreError, OperationType, storage } from './firebase';
 import { 
   collection, 
   doc, 
@@ -37,6 +37,7 @@ import {
   getDocs,
   query
 } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 const STORAGE_KEY = 'employee_records_v1';
 
@@ -901,6 +902,9 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
     title: '', 
     date: new Date().toISOString().split('T')[0] 
   });
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imageUrl, setImageUrl] = useState<string>('');
+  const [isUploading, setIsUploading] = useState(false);
   
   const groupEmployees = useMemo(() => {
     return employees.filter(emp => emp.group === activeGroup || emp.group === 'Both');
@@ -910,15 +914,37 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
     employees.reduce((acc, emp) => ({ ...acc, [emp.id]: { status: 'เข้าร่วม', reason: '' } }), {})
   );
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setImageFile(e.target.files[0]);
+      setImageUrl(URL.createObjectURL(e.target.files[0]));
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsUploading(true);
+    
+    let finalImageUrl = imageUrl;
+    
+    if (imageFile) {
+      try {
+        const storageRef = ref(storage, `activities/${Date.now()}_${imageFile.name}`);
+        const snapshot = await uploadBytes(storageRef, imageFile);
+        finalImageUrl = await getDownloadURL(snapshot.ref);
+      } catch (err) {
+        console.error("Upload error:", err);
+      }
+    }
+
     const recordsToSave = groupEmployees.map(emp => ({
       employeeId: emp.id,
       type: headerData.type,
       title: headerData.title || headerData.type,
       date: headerData.date,
       status: attendance[emp.id].status,
-      reason: attendance[emp.id].reason
+      reason: attendance[emp.id].reason,
+      imageUrl: finalImageUrl
     }));
 
     if (editingGroup) {
@@ -933,7 +959,10 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
       title: '', 
       date: new Date().toISOString().split('T')[0] 
     });
+    setImageFile(null);
+    setImageUrl('');
     setAttendance(employees.reduce((acc, emp) => ({ ...acc, [emp.id]: { status: 'เข้าร่วม', reason: '' } }), {}));
+    setIsUploading(false);
   };
 
   const startEdit = (group: ActivityRecord[]) => {
@@ -941,6 +970,8 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
     const groupInfo = { date: first.date, type: first.type, title: first.title };
     setEditingGroup(groupInfo);
     setHeaderData(groupInfo);
+    setImageUrl(first.imageUrl || '');
+    setImageFile(null);
     
     // Determine which group this belongs to
     const groupIds = group.map(r => r.employeeId);
@@ -1021,6 +1052,42 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
               </div>
             </div>
 
+            <div className="space-y-2">
+              <label className="text-xs font-bold uppercase tracking-widest opacity-50">รูปภาพการเข้าร่วมกิจกรรม</label>
+              <div className="flex flex-col md:flex-row gap-4 items-start">
+                <div className="relative group/img w-full md:w-48 h-32 bg-slate-50 rounded-2xl border-2 border-dashed border-black/5 flex items-center justify-center overflow-hidden">
+                  {imageUrl ? (
+                    <>
+                      <img src={imageUrl} alt="Preview" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      <button 
+                        type="button"
+                        onClick={() => { setImageFile(null); setImageUrl(''); }}
+                        className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover/img:opacity-100 transition-opacity"
+                      >
+                        <Plus size={14} className="rotate-45" />
+                      </button>
+                    </>
+                  ) : (
+                    <div className="text-center p-4">
+                      <Plus size={24} className="mx-auto opacity-20 mb-1" />
+                      <p className="text-[10px] opacity-40">คลิกเพื่อเลือกรูปภาพ</p>
+                    </div>
+                  )}
+                  <input 
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageChange}
+                    className="absolute inset-0 opacity-0 cursor-pointer"
+                  />
+                </div>
+                <div className="flex-1 text-[10px] opacity-40 space-y-1">
+                  <p>• รองรับไฟล์รูปภาพ (JPG, PNG, WEBP)</p>
+                  <p>• รูปภาพจะถูกบันทึกและแสดงในประวัติกิจกรรม</p>
+                  <p>• แนะนำขนาดไม่เกิน 5MB</p>
+                </div>
+              </div>
+            </div>
+
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
@@ -1086,9 +1153,17 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
                   ยกเลิก
                 </button>
               )}
-              <button type="submit" className="bg-violet-600 text-white px-8 py-4 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-violet-700 transition-shadow shadow-lg shadow-violet-600/20">
-                {editingGroup ? <ShieldCheck size={20} /> : <Plus size={20} />} 
-                {editingGroup ? 'บันทึกการแก้ไข' : `บันทึกกิจกรรมกลุ่ม ${activeGroup} (${groupEmployees.length} คน)`}
+              <button 
+                type="submit" 
+                disabled={isUploading}
+                className="bg-violet-600 text-white px-8 py-4 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-violet-700 transition-shadow shadow-lg shadow-violet-600/20 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isUploading ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                ) : (
+                  editingGroup ? <ShieldCheck size={20} /> : <Plus size={20} />
+                )} 
+                {isUploading ? 'กำลังอัปโหลด...' : (editingGroup ? 'บันทึกการแก้ไข' : `บันทึกกิจกรรมกลุ่ม ${activeGroup} (${groupEmployees.length} คน)`)}
               </button>
             </div>
           </form>
@@ -1119,6 +1194,16 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
                     <h4 className="font-bold">{group[0].title}</h4>
                   </div>
                   <div className="flex items-center gap-4">
+                    {group[0].imageUrl && (
+                      <a 
+                        href={group[0].imageUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="w-12 h-12 rounded-lg overflow-hidden border border-black/5 hover:scale-105 transition-transform"
+                      >
+                        <img src={group[0].imageUrl} alt="Activity" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      </a>
+                    )}
                     <div className="flex gap-2 text-xs font-bold">
                       <span className="px-2 py-1 bg-green-100 text-green-700 rounded-lg">เข้าร่วม: {group.filter(r => r.status === 'เข้าร่วม').length}</span>
                       <span className="px-2 py-1 bg-red-100 text-red-700 rounded-lg">ไม่เข้าร่วม: {group.filter(r => r.status === 'ไม่เข้าร่วม').length}</span>

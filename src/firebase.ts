@@ -1,11 +1,13 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc, onSnapshot, query, where, writeBatch } from 'firebase/firestore';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
+export const storage = getStorage(app);
 
 // Error handling helper
 export enum OperationType {

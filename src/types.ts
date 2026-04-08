@@ -27,6 +27,7 @@ export interface ActivityRecord {
   title: string;
   status: 'เข้าร่วม' | 'ไม่เข้าร่วม' | 'อื่นๆ';
   reason?: string;
+  imageUrl?: string;
 }
 
 export interface LeaveRecord {
