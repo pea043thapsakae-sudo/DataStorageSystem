@@ -41,6 +41,26 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 const STORAGE_KEY = 'employee_records_v1';
 
+function Toast({ message, type, onClose }: { message: string, type: 'success' | 'error', onClose: () => void }) {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 3000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, y: 50 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 50 }}
+      className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-2xl shadow-xl flex items-center gap-3 ${
+        type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+      }`}
+    >
+      <div className="text-sm font-bold">{message}</div>
+    </motion.div>
+  );
+}
+
 function ConfirmDialog({ isOpen, onClose, onConfirm, title, message }: { isOpen: boolean, onClose: () => void, onConfirm: () => void, title: string, message: string }) {
   if (!isOpen) return null;
   return (
@@ -179,6 +199,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<Admin | null>(null);
   const [showLogin, setShowLogin] = useState(false);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
   const [state, setState] = useState<AppState>({ 
     employees: EMPLOYEES,
     innovationRecords: [], 
@@ -446,6 +467,10 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-[#1A1A1A] font-sans">
+      <AnimatePresence>
+        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      </AnimatePresence>
+
       {/* Sidebar / Navigation */}
       <div className="flex flex-col md:flex-row min-h-screen">
         <nav className="w-full md:w-64 bg-white border-r border-black/5 p-6 flex flex-col gap-8">
@@ -550,6 +575,7 @@ export default function App() {
                   onUpdate={updateInnovation}
                   onDelete={(id) => deleteRecord('innovationRecords', id)}
                   isAdmin={isAdmin}
+                  setToast={setToast}
                 />
               </motion.div>
             )}
@@ -562,6 +588,7 @@ export default function App() {
                   onUpdate={updateActivities}
                   onDeleteGroup={deleteActivitiesByGroup}
                   isAdmin={isAdmin}
+                  setToast={setToast}
                 />
               </motion.div>
             )}
@@ -574,6 +601,7 @@ export default function App() {
                   onUpdate={updateActivities}
                   onDeleteGroup={deleteActivitiesByGroup}
                   isAdmin={isAdmin}
+                  setToast={setToast}
                 />
               </motion.div>
             )}
@@ -586,6 +614,7 @@ export default function App() {
                   onUpdate={updateLeave}
                   onDelete={(id) => deleteRecord('leaveRecords', id)}
                   isAdmin={isAdmin}
+                  setToast={setToast}
                 />
               </motion.div>
             )}
@@ -606,6 +635,7 @@ export default function App() {
                   onAddEmployee={addEmployee}
                   onUpdateEmployee={updateEmployee}
                   onDeleteEmployee={deleteEmployee}
+                  setToast={setToast}
                 />
               </motion.div>
             )}
@@ -635,7 +665,7 @@ function NavButton({ active, onClick, icon, label }: { active: boolean, onClick:
 
 // --- Sections ---
 
-function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin }: { employees: Employee[], records: InnovationRecord[], onAdd: (r: any) => void, onUpdate: (id: string, r: any) => void, onDelete: (id: string) => void, isAdmin: boolean }) {
+function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, setToast }: { employees: Employee[], records: InnovationRecord[], onAdd: (r: any) => Promise<void>, onUpdate: (id: string, r: any) => Promise<void>, onDelete: (id: string) => Promise<void>, isAdmin: boolean, setToast: (t: any) => void }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [formData, setFormData] = useState<{
@@ -682,8 +712,10 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
       if (editingId) {
         await onUpdate(editingId, dataToSave);
         setEditingId(null);
+        setToast({ message: 'แก้ไขข้อมูลสำเร็จ', type: 'success' });
       } else {
         await onAdd(dataToSave);
+        setToast({ message: 'บันทึกข้อมูลสำเร็จ', type: 'success' });
       }
       
       setFormData({ 
@@ -696,8 +728,10 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
         description: '', 
         date: new Date().toISOString().split('T')[0] 
       });
+      // Show success feedback if needed, but usually the real-time sync is enough
     } catch (err) {
       console.error("Innovation submit error:", err);
+      alert("เกิดข้อผิดพลาดในการบันทึกข้อมูล กรุณาลองใหม่อีกครั้ง หรือตรวจสอบการเชื่อมต่ออินเทอร์เน็ต");
     } finally {
       setIsSaving(false);
     }
@@ -964,7 +998,7 @@ const exportToCSV = (data: any[], filename: string) => {
   document.body.removeChild(link);
 };
 
-function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, isAdmin }: { employees: Employee[], records: ActivityRecord[], onAdd: (r: any[]) => void, onUpdate: (oldGroup: { date: string, type: string, title: string }, newRecords: any[]) => void, onDeleteGroup: (date: string, type: string, title: string) => void, isAdmin: boolean }) {
+function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, isAdmin, setToast }: { employees: Employee[], records: ActivityRecord[], onAdd: (r: any[]) => Promise<void>, onUpdate: (oldGroup: { date: string, type: string, title: string }, newRecords: any[]) => Promise<void>, onDeleteGroup: (date: string, type: string, title: string) => Promise<void>, isAdmin: boolean, setToast: (t: any) => void }) {
   const [editingGroup, setEditingGroup] = useState<{ date: string, type: string, title: string } | null>(null);
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<{ date: string, type: string, title: string } | null>(null);
   const [activeGroup, setActiveGroup] = useState<'A' | 'B'>('A');
@@ -1055,8 +1089,10 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
       if (editingGroup) {
         await onUpdate(editingGroup, recordsToSave);
         setEditingGroup(null);
+        setToast({ message: 'แก้ไขกิจกรรมภายนอกสำเร็จ', type: 'success' });
       } else {
         await onAdd(recordsToSave);
+        setToast({ message: 'บันทึกกิจกรรมภายนอกสำเร็จ', type: 'success' });
       }
 
       setHeaderData({ 
@@ -1069,6 +1105,7 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
       setAttendance(employees.reduce((acc, emp) => ({ ...acc, [emp.id]: { status: 'เข้าร่วม', reason: '' } }), {}));
     } catch (err) {
       console.error("External activity submit error:", err);
+      alert("เกิดข้อผิดพลาดในการบันทึกข้อมูลกิจกรรมภายนอก กรุณาลองใหม่อีกครั้ง");
     } finally {
       setIsUploading(false);
     }
@@ -1371,7 +1408,7 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
   );
 }
 
-function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, isAdmin }: { employees: Employee[], records: ActivityRecord[], onAdd: (r: any[]) => void, onUpdate: (oldGroup: { date: string, type: string, title: string }, newRecords: any[]) => void, onDeleteGroup: (date: string, type: string, title: string) => void, isAdmin: boolean }) {
+function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, isAdmin, setToast }: { employees: Employee[], records: ActivityRecord[], onAdd: (r: any[]) => Promise<void>, onUpdate: (oldGroup: { date: string, type: string, title: string }, newRecords: any[]) => Promise<void>, onDeleteGroup: (date: string, type: string, title: string) => Promise<void>, isAdmin: boolean, setToast: (t: any) => void }) {
   const [editingGroup, setEditingGroup] = useState<{ date: string, type: string, title: string } | null>(null);
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<{ date: string, type: string, title: string } | null>(null);
   const [headerData, setHeaderData] = useState({ 
@@ -1418,8 +1455,10 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
       if (editingGroup) {
         await onUpdate(editingGroup, recordsToSave);
         setEditingGroup(null);
+        setToast({ message: 'แก้ไขกิจกรรมสำเร็จ', type: 'success' });
       } else {
         await onAdd(recordsToSave);
+        setToast({ message: 'บันทึกกิจกรรมสำเร็จ', type: 'success' });
       }
 
       setHeaderData({ 
@@ -1430,6 +1469,7 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
       setAttendance(employees.reduce((acc, emp) => ({ ...acc, [emp.id]: { status: 'เข้าร่วม', reason: '' } }), {}));
     } catch (err) {
       console.error("Activity submit error:", err);
+      alert("เกิดข้อผิดพลาดในการบันทึกกิจกรรม กรุณาลองใหม่อีกครั้ง");
     } finally {
       setIsSaving(false);
     }
@@ -1650,7 +1690,7 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
   );
 }
 
-function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin }: { employees: Employee[], records: LeaveRecord[], onAdd: (r: any) => void, onUpdate: (id: string, r: any) => void, onDelete: (id: string) => void, isAdmin: boolean }) {
+function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, setToast }: { employees: Employee[], records: LeaveRecord[], onAdd: (r: any) => Promise<void>, onUpdate: (id: string, r: any) => Promise<void>, onDelete: (id: string) => Promise<void>, isAdmin: boolean, setToast: (t: any) => void }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -1678,8 +1718,10 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin }
       if (editingId) {
         await onUpdate(editingId, formData);
         setEditingId(null);
+        setToast({ message: 'แก้ไขข้อมูลการลาสำเร็จ', type: 'success' });
       } else {
         await onAdd(formData);
+        setToast({ message: 'บันทึกข้อมูลการลาสำเร็จ', type: 'success' });
       }
       setFormData({ 
         employeeId: employees[0]?.id || 1, 
@@ -1690,6 +1732,7 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin }
       });
     } catch (err) {
       console.error("Leave submit error:", err);
+      alert("เกิดข้อผิดพลาดในการบันทึกข้อมูลการลา กรุณาลองใหม่อีกครั้ง");
     } finally {
       setIsSaving(false);
     }
@@ -2167,7 +2210,8 @@ function AdminSection({
   onDeleteAdmin,
   onAddEmployee,
   onUpdateEmployee,
-  onDeleteEmployee
+  onDeleteEmployee,
+  setToast
 }: { 
   admins: Admin[], 
   employees: Employee[],
@@ -2177,7 +2221,8 @@ function AdminSection({
   onDeleteAdmin: (id: string) => Promise<void>,
   onAddEmployee: (e: any) => Promise<void>,
   onUpdateEmployee: (id: number, e: any) => Promise<void>,
-  onDeleteEmployee: (id: number) => Promise<void>
+  onDeleteEmployee: (id: number) => Promise<void>,
+  setToast: (t: any) => void
 }) {
   const [showAdd, setShowAdd] = useState(false);
   const [newAdmin, setNewAdmin] = useState({ id: '', password: '', name: '' });
@@ -2194,35 +2239,54 @@ function AdminSection({
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    const success = await onAddAdmin(newAdmin);
-    if (success) {
-      setNewAdmin({ id: '', password: '', name: '' });
-      setShowAdd(false);
-      setError('');
-    } else {
-      setError('ชื่อผู้ใช้นี้เป็นแอดมินอยู่แล้ว');
+    try {
+      const success = await onAddAdmin(newAdmin);
+      if (success) {
+        setNewAdmin({ id: '', password: '', name: '' });
+        setShowAdd(false);
+        setError('');
+        setToast({ message: 'เพิ่มแอดมินสำเร็จ', type: 'success' });
+      } else {
+        setError('ชื่อผู้ใช้นี้เป็นแอดมินอยู่แล้ว');
+      }
+    } catch (err) {
+      console.error("Add admin error:", err);
+      alert("เกิดข้อผิดพลาดในการเพิ่มแอดมิน");
     }
   };
 
-  const handleChangePass = (e: React.FormEvent) => {
+  const handleChangePass = async (e: React.FormEvent) => {
     e.preventDefault();
     if (currentUser && newPass) {
-      onUpdatePassword(currentUser.id, newPass);
-      setNewPass('');
-      setShowChangePass(false);
+      try {
+        await onUpdatePassword(currentUser.id, newPass);
+        setNewPass('');
+        setShowChangePass(false);
+        setToast({ message: 'เปลี่ยนรหัสผ่านสำเร็จ', type: 'success' });
+      } catch (err) {
+        console.error("Change pass error:", err);
+        alert("เกิดข้อผิดพลาดในการเปลี่ยนรหัสผ่าน");
+      }
     }
   };
 
-  const handleEmployeeSubmit = (e: React.FormEvent) => {
+  const handleEmployeeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (editingEmployee) {
-      onUpdateEmployee(editingEmployee.id, newEmployee);
-      setEditingEmployee(null);
-    } else {
-      onAddEmployee(newEmployee);
+    try {
+      if (editingEmployee) {
+        await onUpdateEmployee(editingEmployee.id, newEmployee);
+        setEditingEmployee(null);
+        setToast({ message: 'แก้ไขข้อมูลพนักงานสำเร็จ', type: 'success' });
+      } else {
+        await onAddEmployee(newEmployee);
+        setToast({ message: 'เพิ่มพนักงานสำเร็จ', type: 'success' });
+      }
+      setNewEmployee({ id: 0, name: '', position: '' });
+      setShowAddEmployee(false);
+    } catch (err) {
+      console.error("Employee submit error:", err);
+      alert("เกิดข้อผิดพลาดในการบันทึกข้อมูลพนักงาน");
     }
-    setNewEmployee({ id: 0, name: '', position: '' });
-    setShowAddEmployee(false);
   };
 
   const startEditEmployee = (emp: Employee) => {

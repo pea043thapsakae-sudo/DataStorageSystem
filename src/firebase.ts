@@ -50,13 +50,17 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 // Initialize Auth
 export const initAuth = () => {
   return new Promise((resolve) => {
-    onAuthStateChanged(auth, (user) => {
-      if (!user) {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        unsubscribe();
+        resolve(user);
+      } else {
         signInAnonymously(auth).catch(err => {
           console.error("Auth Error:", err);
+          // Still resolve to allow app to load, but log error
+          resolve(null);
         });
       }
-      resolve(user);
     });
   });
 };
