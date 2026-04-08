@@ -180,7 +180,7 @@ export default function App() {
   const [showLogin, setShowLogin] = useState(false);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [state, setState] = useState<AppState>({ 
-    employees: [],
+    employees: EMPLOYEES,
     innovationRecords: [], 
     activityRecords: [], 
     leaveRecords: [], 
@@ -648,7 +648,7 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
     description: string;
     date: string;
   }>({ 
-    employeeId: 1, 
+    employeeId: employees.length > 0 ? employees[0].id : 1, 
     participants: [],
     type: 'นวัตกรรม', 
     kmSubtype: 'OPL',
@@ -657,6 +657,15 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
     description: '', 
     date: new Date().toISOString().split('T')[0] 
   });
+
+  useEffect(() => {
+    if (employees.length > 0 && !editingId) {
+      setFormData(prev => ({
+        ...prev,
+        employeeId: prev.employeeId === 1 && employees.every(e => e.id !== 1) ? employees[0].id : prev.employeeId
+      }));
+    }
+  }, [employees, editingId]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -957,6 +966,22 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
     employees.reduce((acc, emp) => ({ ...acc, [emp.id]: { status: 'เข้าร่วม', reason: '' } }), {})
   );
 
+  useEffect(() => {
+    if (employees.length > 0) {
+      setAttendance(prev => {
+        const next = { ...prev };
+        let changed = false;
+        employees.forEach(emp => {
+          if (!next[emp.id]) {
+            next[emp.id] = { status: 'เข้าร่วม', reason: '' };
+            changed = true;
+          }
+        });
+        return changed ? next : prev;
+      });
+    }
+  }, [employees]);
+
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const files = Array.from(e.target.files);
@@ -1182,7 +1207,7 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
                               type="button"
                               onClick={() => updateAttendance(emp.id, status as any)}
                               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                                attendance[emp.id].status === status
+                                attendance[emp.id]?.status === status
                                   ? 'bg-violet-600 text-white'
                                   : 'bg-black/5 text-black/50 hover:bg-black/10'
                               }`}
@@ -1193,12 +1218,12 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
                         </div>
                       </td>
                       <td className="p-4">
-                        {attendance[emp.id].status === 'อื่นๆ' && (
+                        {attendance[emp.id]?.status === 'อื่นๆ' && (
                           <input 
                             type="text"
                             placeholder="ระบุเหตุผล..."
                             className="w-full p-2 text-xs rounded-lg bg-slate-50 border-none focus:ring-1 focus:ring-violet-500"
-                            value={attendance[emp.id].reason}
+                            value={attendance[emp.id]?.reason || ''}
                             onChange={e => updateAttendance(emp.id, 'อื่นๆ', e.target.value)}
                           />
                         )}
@@ -1339,6 +1364,22 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
     employees.reduce((acc, emp) => ({ ...acc, [emp.id]: { status: 'เข้าร่วม', reason: '' } }), {})
   );
 
+  useEffect(() => {
+    if (employees.length > 0) {
+      setAttendance(prev => {
+        const next = { ...prev };
+        let changed = false;
+        employees.forEach(emp => {
+          if (!next[emp.id]) {
+            next[emp.id] = { status: 'เข้าร่วม', reason: '' };
+            changed = true;
+          }
+        });
+        return changed ? next : prev;
+      });
+    }
+  }, [employees]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const recordsToSave = employees.map(emp => ({
@@ -1460,7 +1501,7 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
                               type="button"
                               onClick={() => updateAttendance(emp.id, status as any)}
                               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                                attendance[emp.id].status === status
+                                attendance[emp.id]?.status === status
                                   ? 'bg-violet-600 text-white'
                                   : 'bg-black/5 text-black/50 hover:bg-black/10'
                               }`}
@@ -1471,12 +1512,12 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
                         </div>
                       </td>
                       <td className="p-4">
-                        {attendance[emp.id].status === 'อื่นๆ' && (
+                        {attendance[emp.id]?.status === 'อื่นๆ' && (
                           <input 
                             type="text"
                             placeholder="ระบุเหตุผล..."
                             className="w-full p-2 text-xs rounded-lg bg-slate-50 border-none focus:ring-1 focus:ring-violet-500"
-                            value={attendance[emp.id].reason}
+                            value={attendance[emp.id]?.reason || ''}
                             onChange={e => updateAttendance(emp.id, 'อื่นๆ', e.target.value)}
                           />
                         )}
@@ -1581,6 +1622,15 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin }
     startDate: new Date().toISOString().split('T')[0], 
     endDate: new Date().toISOString().split('T')[0] 
   });
+
+  useEffect(() => {
+    if (employees.length > 0 && !editingId) {
+      setFormData(prev => ({
+        ...prev,
+        employeeId: prev.employeeId === 1 && employees.every(e => e.id !== 1) ? employees[0].id : prev.employeeId
+      }));
+    }
+  }, [employees, editingId]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
