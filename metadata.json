@@ -1,0 +1,5 @@
+{
+  "name": "ระบบบันทึกข้อมูลพนักงาน (Employee Record System)",
+  "description": "ระบบบันทึกข้อมูลพนักงาน 3 ส่วน: นวัตกรรม/KM, กิจกรรมองค์กร และการลา พร้อมรายงานสรุปผล",
+  "requestFramePermissions": []
+}
