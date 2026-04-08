@@ -26,6 +26,17 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { EMPLOYEES, INNOVATION_TYPES, KM_SUBTYPES, ACTIVITY_TYPES, LEAVE_TYPES } from './constants';
 import { AppState, InnovationRecord, ActivityRecord, LeaveRecord, Admin, Employee } from './types';
+import { db, auth, initAuth, handleFirestoreError, OperationType } from './firebase';
+import { 
+  collection, 
+  doc, 
+  setDoc, 
+  deleteDoc, 
+  onSnapshot, 
+  writeBatch,
+  getDocs,
+  query
+} from 'firebase/firestore';
 
 const STORAGE_KEY = 'employee_records_v1';
 
@@ -136,27 +147,76 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'innovation' | 'activity' | 'external' | 'leave' | 'report' | 'admin'>('innovation');
   const [currentUser, setCurrentUser] = useState<Admin | null>(null);
   const [showLogin, setShowLogin] = useState(false);
-  const [state, setState] = useState<AppState>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    const defaultAdmins = [{ id: '9012844', password: 'PEATSG043', name: 'แอดมินหลัก' }];
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (!parsed.admins || parsed.admins.length === 0) parsed.admins = defaultAdmins;
-      if (!parsed.employees || parsed.employees.length === 0) parsed.employees = EMPLOYEES;
-      return parsed;
-    }
-    return { 
-      employees: EMPLOYEES,
-      innovationRecords: [], 
-      activityRecords: [], 
-      leaveRecords: [], 
-      admins: defaultAdmins 
-    };
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [state, setState] = useState<AppState>({ 
+    employees: [],
+    innovationRecords: [], 
+    activityRecords: [], 
+    leaveRecords: [], 
+    admins: [] 
   });
 
+  // Initialize Firebase Auth
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
+    initAuth().then(() => {
+      setIsAuthReady(true);
+    });
+  }, []);
+
+  // Real-time listeners
+  useEffect(() => {
+    if (!isAuthReady) return;
+
+    const unsubAdmins = onSnapshot(collection(db, 'admins'), (snapshot) => {
+      const admins = snapshot.docs.map(doc => doc.data() as Admin);
+      const defaultAdmins = [{ id: '9012844', password: 'PEATSG043', name: 'แอดมินหลัก' }];
+      
+      // If no admins in DB, seed with default
+      if (admins.length === 0) {
+        defaultAdmins.forEach(admin => {
+          setDoc(doc(db, 'admins', admin.id), admin);
+        });
+      }
+      
+      setState(prev => ({ ...prev, admins: admins.length > 0 ? admins : defaultAdmins }));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'admins'));
+
+    const unsubEmployees = onSnapshot(collection(db, 'employees'), (snapshot) => {
+      const employees = snapshot.docs.map(doc => doc.data() as Employee).sort((a, b) => a.id - b.id);
+      
+      // If no employees in DB, seed with constants
+      if (employees.length === 0) {
+        EMPLOYEES.forEach(emp => {
+          setDoc(doc(db, 'employees', emp.id.toString()), emp);
+        });
+      }
+      
+      setState(prev => ({ ...prev, employees: employees.length > 0 ? employees : EMPLOYEES }));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'employees'));
+
+    const unsubInnovation = onSnapshot(collection(db, 'innovationRecords'), (snapshot) => {
+      const records = snapshot.docs.map(doc => doc.data() as InnovationRecord);
+      setState(prev => ({ ...prev, innovationRecords: records }));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'innovationRecords'));
+
+    const unsubActivity = onSnapshot(collection(db, 'activityRecords'), (snapshot) => {
+      const records = snapshot.docs.map(doc => doc.data() as ActivityRecord);
+      setState(prev => ({ ...prev, activityRecords: records }));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'activityRecords'));
+
+    const unsubLeave = onSnapshot(collection(db, 'leaveRecords'), (snapshot) => {
+      const records = snapshot.docs.map(doc => doc.data() as LeaveRecord);
+      setState(prev => ({ ...prev, leaveRecords: records }));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'leaveRecords'));
+
+    return () => {
+      unsubAdmins();
+      unsubEmployees();
+      unsubInnovation();
+      unsubActivity();
+      unsubLeave();
+    };
+  }, [isAuthReady]);
 
   const isAdmin = !!currentUser;
 
@@ -170,108 +230,175 @@ export default function App() {
     if (activeTab === 'admin') setActiveTab('innovation');
   };
 
-  const addAdmin = (admin: Admin) => {
+  const addAdmin = async (admin: Admin) => {
     if (state.admins.find(a => a.id === admin.id)) return false;
-    setState(prev => ({ ...prev, admins: [...prev.admins, admin] }));
-    return true;
-  };
-
-  const updateAdminPassword = (id: string, newPass: string) => {
-    setState(prev => ({
-      ...prev,
-      admins: prev.admins.map(a => a.id === id ? { ...a, password: newPass } : a)
-    }));
-    if (currentUser?.id === id) {
-      setCurrentUser(prev => prev ? { ...prev, password: newPass } : null);
+    try {
+      await setDoc(doc(db, 'admins', admin.id), admin);
+      return true;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `admins/${admin.id}`);
+      return false;
     }
   };
 
-  const deleteAdmin = (id: string) => {
-    if (id === '9012844') return; // Cannot delete main admin
-    setState(prev => ({
-      ...prev,
-      admins: prev.admins.filter(a => a.id !== id)
-    }));
+  const updateAdminPassword = async (id: string, newPass: string) => {
+    const admin = state.admins.find(a => a.id === id);
+    if (admin) {
+      try {
+        const updated = { ...admin, password: newPass };
+        await setDoc(doc(db, 'admins', id), updated);
+        if (currentUser?.id === id) {
+          setCurrentUser(updated);
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `admins/${id}`);
+      }
+    }
   };
 
-  const addEmployee = (emp: { name: string, position: string }) => {
+  const deleteAdmin = async (id: string) => {
+    if (id === '9012844') return;
+    try {
+      await deleteDoc(doc(db, 'admins', id));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `admins/${id}`);
+    }
+  };
+
+  const addEmployee = async (emp: { name: string, position: string, group?: 'A' | 'B' | 'Both' }) => {
     const newId = state.employees.length > 0 ? Math.max(...state.employees.map(e => e.id)) + 1 : 1;
-    setState(prev => ({ ...prev, employees: [...prev.employees, { ...emp, id: newId }] }));
+    const newEmp = { ...emp, id: newId };
+    try {
+      await setDoc(doc(db, 'employees', newId.toString()), newEmp);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `employees/${newId}`);
+    }
   };
 
-  const updateEmployee = (id: number, emp: { name: string, position: string }) => {
-    setState(prev => ({
-      ...prev,
-      employees: prev.employees.map(e => e.id === id ? { ...emp, id } : e)
-    }));
+  const updateEmployee = async (id: number, emp: { name: string, position: string, group?: 'A' | 'B' | 'Both' }) => {
+    try {
+      await setDoc(doc(db, 'employees', id.toString()), { ...emp, id });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `employees/${id}`);
+    }
   };
 
-  const deleteEmployee = (id: number) => {
-    setState(prev => ({
-      ...prev,
-      employees: prev.employees.filter(e => e.id !== id)
-    }));
+  const deleteEmployee = async (id: number) => {
+    try {
+      await deleteDoc(doc(db, 'employees', id.toString()));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `employees/${id}`);
+    }
   };
 
-  const addInnovation = (record: Omit<InnovationRecord, 'id'>) => {
-    setState(prev => ({
-      ...prev,
-      innovationRecords: [...prev.innovationRecords, { ...record, id: crypto.randomUUID() }]
-    }));
+  const addInnovation = async (record: Omit<InnovationRecord, 'id'>) => {
+    const id = crypto.randomUUID();
+    try {
+      await setDoc(doc(db, 'innovationRecords', id), { ...record, id });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `innovationRecords/${id}`);
+    }
   };
 
-  const updateInnovation = (id: string, record: Omit<InnovationRecord, 'id'>) => {
-    setState(prev => ({
-      ...prev,
-      innovationRecords: prev.innovationRecords.map(r => r.id === id ? { ...record, id } : r)
-    }));
+  const updateInnovation = async (id: string, record: Omit<InnovationRecord, 'id'>) => {
+    try {
+      await setDoc(doc(db, 'innovationRecords', id), { ...record, id });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `innovationRecords/${id}`);
+    }
   };
 
-  const addActivities = (records: Omit<ActivityRecord, 'id'>[]) => {
-    setState(prev => ({
-      ...prev,
-      activityRecords: [...prev.activityRecords, ...records.map(r => ({ ...r, id: crypto.randomUUID() }))]
-    }));
-  };
-
-  const updateActivities = (oldGroup: { date: string, type: string, title: string }, newRecords: Omit<ActivityRecord, 'id'>[]) => {
-    setState(prev => {
-      const filtered = prev.activityRecords.filter(r => !(r.date === oldGroup.date && r.type === oldGroup.type && r.title === oldGroup.title));
-      const added = newRecords.map(r => ({ ...r, id: crypto.randomUUID() }));
-      return {
-        ...prev,
-        activityRecords: [...filtered, ...added]
-      };
+  const addActivities = async (records: Omit<ActivityRecord, 'id'>[]) => {
+    const batch = writeBatch(db);
+    records.forEach(r => {
+      const id = crypto.randomUUID();
+      batch.set(doc(db, 'activityRecords', id), { ...r, id });
     });
+    try {
+      await batch.commit();
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'activityRecords (batch)');
+    }
   };
 
-  const addLeave = (record: Omit<LeaveRecord, 'id'>) => {
-    setState(prev => ({
-      ...prev,
-      leaveRecords: [...prev.leaveRecords, { ...record, id: crypto.randomUUID() }]
-    }));
+  const updateActivities = async (oldGroup: { date: string, type: string, title: string }, newRecords: Omit<ActivityRecord, 'id'>[]) => {
+    const batch = writeBatch(db);
+    
+    // Find and delete old records
+    const oldRecords = state.activityRecords.filter(r => 
+      r.date === oldGroup.date && r.type === oldGroup.type && r.title === oldGroup.title
+    );
+    oldRecords.forEach(r => {
+      batch.delete(doc(db, 'activityRecords', r.id));
+    });
+
+    // Add new records
+    newRecords.forEach(r => {
+      const id = crypto.randomUUID();
+      batch.set(doc(db, 'activityRecords', id), { ...r, id });
+    });
+
+    try {
+      await batch.commit();
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'activityRecords (update batch)');
+    }
   };
 
-  const updateLeave = (id: string, record: Omit<LeaveRecord, 'id'>) => {
-    setState(prev => ({
-      ...prev,
-      leaveRecords: prev.leaveRecords.map(r => r.id === id ? { ...record, id } : r)
-    }));
+  const addLeave = async (record: Omit<LeaveRecord, 'id'>) => {
+    const id = crypto.randomUUID();
+    try {
+      await setDoc(doc(db, 'leaveRecords', id), { ...record, id });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `leaveRecords/${id}`);
+    }
   };
 
-  const deleteRecord = (type: keyof AppState, id: string) => {
-    setState(prev => ({
-      ...prev,
-      [type]: (prev[type] as any[]).filter(r => r.id !== id)
-    }));
+  const updateLeave = async (id: string, record: Omit<LeaveRecord, 'id'>) => {
+    try {
+      await setDoc(doc(db, 'leaveRecords', id), { ...record, id });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `leaveRecords/${id}`);
+    }
   };
 
-  const deleteActivitiesByGroup = (date: string, type: string, title: string) => {
-    setState(prev => ({
-      ...prev,
-      activityRecords: prev.activityRecords.filter(r => !(r.date === date && r.type === type && r.title === title))
-    }));
+  const deleteRecord = async (type: keyof AppState, id: string) => {
+    const collectionName = type === 'innovationRecords' ? 'innovationRecords' : 
+                          type === 'activityRecords' ? 'activityRecords' : 
+                          type === 'leaveRecords' ? 'leaveRecords' : '';
+    if (!collectionName) return;
+    try {
+      await deleteDoc(doc(db, collectionName, id));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `${collectionName}/${id}`);
+    }
   };
+
+  const deleteActivitiesByGroup = async (date: string, type: string, title: string) => {
+    const batch = writeBatch(db);
+    const recordsToDelete = state.activityRecords.filter(r => 
+      r.date === date && r.type === type && r.title === title
+    );
+    recordsToDelete.forEach(r => {
+      batch.delete(doc(db, 'activityRecords', r.id));
+    });
+    try {
+      await batch.commit();
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, 'activityRecords (group delete)');
+    }
+  };
+
+  if (!isAuthReady) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="w-12 h-12 border-4 border-violet-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="text-sm font-bold opacity-50">กำลังเชื่อมต่อฐานข้อมูล...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 text-[#1A1A1A] font-sans">
@@ -1782,12 +1909,12 @@ function AdminSection({
   admins: Admin[], 
   employees: Employee[],
   currentUser: Admin | null, 
-  onAddAdmin: (a: Admin) => boolean, 
-  onUpdatePassword: (id: string, pass: string) => void, 
-  onDeleteAdmin: (id: string) => void,
-  onAddEmployee: (e: Employee) => void,
-  onUpdateEmployee: (id: number, e: Employee) => void,
-  onDeleteEmployee: (id: number) => void
+  onAddAdmin: (a: Admin) => Promise<boolean>, 
+  onUpdatePassword: (id: string, pass: string) => Promise<void>, 
+  onDeleteAdmin: (id: string) => Promise<void>,
+  onAddEmployee: (e: any) => Promise<void>,
+  onUpdateEmployee: (id: number, e: any) => Promise<void>,
+  onDeleteEmployee: (id: number) => Promise<void>
 }) {
   const [showAdd, setShowAdd] = useState(false);
   const [newAdmin, setNewAdmin] = useState({ id: '', password: '', name: '' });
@@ -1802,9 +1929,10 @@ function AdminSection({
   const [newEmployee, setNewEmployee] = useState({ id: 0, name: '', position: '' });
   const [deleteEmployeeConfirmId, setDeleteEmployeeConfirmId] = useState<number | null>(null);
 
-  const handleAdd = (e: React.FormEvent) => {
+  const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (onAddAdmin(newAdmin)) {
+    const success = await onAddAdmin(newAdmin);
+    if (success) {
       setNewAdmin({ id: '', password: '', name: '' });
       setShowAdd(false);
       setError('');

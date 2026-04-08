@@ -1,0 +1,95 @@
+{
+  "entities": {
+    "Employee": {
+      "title": "Employee",
+      "description": "Employee information",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "name": { "type": "string" },
+        "position": { "type": "string" },
+        "group": { "type": "string", "enum": ["A", "B", "Both"] }
+      },
+      "required": ["id", "name", "position"]
+    },
+    "InnovationRecord": {
+      "title": "InnovationRecord",
+      "description": "Innovation or KM record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "employeeId": { "type": "number" },
+        "participants": { "type": "array", "items": { "type": "number" } },
+        "date": { "type": "string" },
+        "type": { "type": "string", "enum": ["นวัตกรรม", "KM"] },
+        "kmSubtype": { "type": "string", "enum": ["OPL", "OPK"] },
+        "contentId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["id", "employeeId", "date", "type", "title"]
+    },
+    "ActivityRecord": {
+      "title": "ActivityRecord",
+      "description": "Activity participation record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "employeeId": { "type": "number" },
+        "date": { "type": "string" },
+        "type": { "type": "string", "enum": ["กิจกรรม", "กิจกรรมภายนอก"] },
+        "title": { "type": "string" },
+        "status": { "type": "string", "enum": ["เข้าร่วม", "ไม่เข้าร่วม", "อื่นๆ"] },
+        "reason": { "type": "string" }
+      },
+      "required": ["id", "employeeId", "date", "type", "title", "status"]
+    },
+    "LeaveRecord": {
+      "title": "LeaveRecord",
+      "description": "Leave or absence record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "employeeId": { "type": "number" },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "type": { "type": "string", "enum": ["ลาป่วย", "ลากิจ", "มาสาย", "ราชการ"] },
+        "reason": { "type": "string" }
+      },
+      "required": ["id", "employeeId", "startDate", "endDate", "type", "reason"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "Administrator account",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "password": { "type": "string" },
+        "name": { "type": "string" }
+      },
+      "required": ["id", "password", "name"]
+    }
+  },
+  "firestore": {
+    "/employees/{employeeId}": {
+      "schema": "Employee",
+      "description": "Collection of employees"
+    },
+    "/innovationRecords/{recordId}": {
+      "schema": "InnovationRecord",
+      "description": "Collection of innovation/KM records"
+    },
+    "/activityRecords/{recordId}": {
+      "schema": "ActivityRecord",
+      "description": "Collection of activity records"
+    },
+    "/leaveRecords/{recordId}": {
+      "schema": "LeaveRecord",
+      "description": "Collection of leave records"
+    },
+    "/admins/{adminId}": {
+      "schema": "Admin",
+      "description": "Collection of administrators"
+    }
+  }
+}

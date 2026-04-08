@@ -1,0 +1,114 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: employees
+    // Document ID: {employeeId} (string representation of number)
+    // Fields:
+    //   - id: number (required)
+    //   - name: string (required)
+    //   - position: string (required)
+    //   - group: string (optional, enum: A, B, Both)
+    //
+    // Collection: innovationRecords
+    // Document ID: {recordId} (UUID)
+    // Fields:
+    //   - id: string (required)
+    //   - employeeId: number (required)
+    //   - participants: list of numbers (optional)
+    //   - date: string (required, ISO)
+    //   - type: string (required, enum: นวัตกรรม, KM)
+    //   - kmSubtype: string (optional, enum: OPL, OPK)
+    //   - contentId: string (optional)
+    //   - title: string (required)
+    //   - description: string (optional)
+    //
+    // Collection: activityRecords
+    // Document ID: {recordId} (UUID)
+    // Fields:
+    //   - id: string (required)
+    //   - employeeId: number (required)
+    //   - date: string (required, ISO)
+    //   - type: string (required, enum: กิจกรรม, กิจกรรมภายนอก)
+    //   - title: string (required)
+    //   - status: string (required, enum: เข้าร่วม, ไม่เข้าร่วม, อื่นๆ)
+    //   - reason: string (optional)
+    //
+    // Collection: leaveRecords
+    // Document ID: {recordId} (UUID)
+    // Fields:
+    //   - id: string (required)
+    //   - employeeId: number (required)
+    //   - startDate: string (required, ISO)
+    //   - endDate: string (required, ISO)
+    //   - type: string (required, enum: ลาป่วย, ลากิจ, มาสาย, ราชการ)
+    //   - reason: string (required)
+    //
+    // Collection: admins
+    // Document ID: {adminId} (string)
+    // Fields:
+    //   - id: string (required)
+    //   - password: string (required)
+    //   - name: string (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // In this app, we use a simple admin login system.
+    // To keep it simple and cross-device, we allow any authenticated user to read/write
+    // IF they are logged in via the app's admin logic.
+    // However, since we are using Firebase Auth for cross-device sync, 
+    // we should ideally use Firebase Auth. For now, we'll allow authenticated users.
+    
+    function isAdmin() {
+      return isAuthenticated();
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /employees/{employeeId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /innovationRecords/{recordId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /activityRecords/{recordId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /leaveRecords/{recordId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /admins/{adminId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+  }
+}
