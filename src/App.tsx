@@ -86,7 +86,7 @@ function LoginModal({ isOpen, onClose, onLogin, admins }: { isOpen: boolean, onC
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const admin = admins.find(a => a.id === username && a.password === password);
+    const admin = admins.find(a => a.id === username.trim() && a.password === password.trim());
     if (admin) {
       onLogin(admin);
       setUsername('');
@@ -172,12 +172,13 @@ export default function App() {
       const admins = snapshot.docs.map(doc => doc.data() as Admin);
       const defaultAdmins = [{ id: '9012844', password: 'PEATSG043', name: 'แอดมินหลัก' }];
       
-      // If no admins in DB, seed with default
-      if (admins.length === 0) {
-        defaultAdmins.forEach(admin => {
+      // Ensure default admin exists and has correct password
+      defaultAdmins.forEach(admin => {
+        const existing = admins.find(a => a.id === admin.id);
+        if (!existing || existing.password !== admin.password) {
           setDoc(doc(db, 'admins', admin.id), admin);
-        });
-      }
+        }
+      });
       
       setState(prev => ({ ...prev, admins: admins.length > 0 ? admins : defaultAdmins }));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'admins'));
