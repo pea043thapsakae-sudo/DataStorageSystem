@@ -80,13 +80,29 @@ function StatCard({ icon: Icon, label, value, color }: { icon: any, label: strin
 function LoginModal({ isOpen, onClose, onLogin, admins }: { isOpen: boolean, onClose: () => void, onLogin: (admin: Admin) => void, admins: Admin[] }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
 
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const admin = admins.find(a => a.id === username.trim() && a.password === password.trim());
+    
+    // Normalize Thai numerals to Arabic numerals
+    const normalize = (str: string) => str.replace(/[๐-๙]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0x0E50 + 48));
+    
+    const cleanUsername = normalize(username.trim());
+    const cleanPassword = normalize(password.trim());
+    
+    // Hardcoded fallback for the primary admin to ensure access even if DB sync fails
+    const defaultAdmin = { id: '9012844', password: 'PEATSG043', name: 'แอดมินหลัก' };
+    
+    let admin = admins.find(a => a.id === cleanUsername && a.password === cleanPassword);
+    
+    if (!admin && cleanUsername === defaultAdmin.id && cleanPassword === defaultAdmin.password) {
+      admin = defaultAdmin;
+    }
+    
     if (admin) {
       onLogin(admin);
       setUsername('');
@@ -94,7 +110,7 @@ function LoginModal({ isOpen, onClose, onLogin, admins }: { isOpen: boolean, onC
       setError('');
       onClose();
     } else {
-      setError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
+      setError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง');
     }
   };
 
@@ -118,6 +134,7 @@ function LoginModal({ isOpen, onClose, onLogin, admins }: { isOpen: boolean, onC
             <input 
               type="text"
               required
+              placeholder="9012844"
               className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500"
               value={username}
               onChange={e => setUsername(e.target.value)}
@@ -125,18 +142,31 @@ function LoginModal({ isOpen, onClose, onLogin, admins }: { isOpen: boolean, onC
           </div>
           <div className="space-y-1">
             <label className="text-[10px] font-bold uppercase tracking-widest opacity-50">รหัสผ่าน</label>
-            <input 
-              type="password"
-              required
-              className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-            />
+            <div className="relative">
+              <input 
+                type={showPassword ? "text" : "password"}
+                required
+                className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500 pr-10"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+              />
+              <button 
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-black/20 hover:text-black/50"
+              >
+                {showPassword ? <ShieldCheck size={18} /> : <Lock size={18} />}
+              </button>
+            </div>
           </div>
-          {error && <p className="text-xs text-red-500 font-bold">{error}</p>}
-          <div className="flex gap-3">
-            <button type="button" onClick={onClose} className="flex-1 p-3 rounded-xl font-bold bg-black/5">ยกเลิก</button>
-            <button type="submit" className="flex-1 p-3 rounded-xl font-bold bg-violet-600 text-white">เข้าสู่ระบบ</button>
+          {error && (
+            <div className="p-3 rounded-xl bg-red-50 border border-red-100">
+              <p className="text-xs text-red-500 font-bold text-center">{error}</p>
+            </div>
+          )}
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose} className="flex-1 p-3 rounded-xl font-bold bg-black/5 hover:bg-black/10 transition-colors">ยกเลิก</button>
+            <button type="submit" className="flex-1 p-3 rounded-xl font-bold bg-violet-600 text-white hover:bg-violet-700 transition-colors shadow-lg shadow-violet-600/20">เข้าสู่ระบบ</button>
           </div>
         </form>
       </motion.div>
@@ -154,7 +184,7 @@ export default function App() {
     innovationRecords: [], 
     activityRecords: [], 
     leaveRecords: [], 
-    admins: [] 
+    admins: [{ id: '9012844', password: 'PEATSG043', name: 'แอดมินหลัก' }] 
   });
 
   // Initialize Firebase Auth
@@ -172,15 +202,27 @@ export default function App() {
       const admins = snapshot.docs.map(doc => doc.data() as Admin);
       const defaultAdmins = [{ id: '9012844', password: 'PEATSG043', name: 'แอดมินหลัก' }];
       
-      // Ensure default admin exists and has correct password
+      // Ensure default admin exists in DB and has correct password
       defaultAdmins.forEach(admin => {
         const existing = admins.find(a => a.id === admin.id);
         if (!existing || existing.password !== admin.password) {
           setDoc(doc(db, 'admins', admin.id), admin);
         }
       });
+
+      // Merge default admins into state to ensure they are always available with correct password
+      const finalAdmins = [...admins];
+      defaultAdmins.forEach(def => {
+        const idx = finalAdmins.findIndex(a => a.id === def.id);
+        if (idx === -1) {
+          finalAdmins.push(def);
+        } else {
+          // Override with default password if different
+          finalAdmins[idx] = { ...finalAdmins[idx], password: def.password };
+        }
+      });
       
-      setState(prev => ({ ...prev, admins: admins.length > 0 ? admins : defaultAdmins }));
+      setState(prev => ({ ...prev, admins: finalAdmins }));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'admins'));
 
     const unsubEmployees = onSnapshot(collection(db, 'employees'), (snapshot) => {
