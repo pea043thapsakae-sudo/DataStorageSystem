@@ -658,6 +658,8 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
     date: new Date().toISOString().split('T')[0] 
   });
 
+  const [isSaving, setIsSaving] = useState(false);
+
   useEffect(() => {
     if (employees.length > 0 && !editingId) {
       setFormData(prev => ({
@@ -667,31 +669,38 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
     }
   }, [employees, editingId]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const dataToSave = { ...formData };
-    if (dataToSave.type !== 'KM') {
-      delete dataToSave.kmSubtype;
-      delete dataToSave.contentId;
+    setIsSaving(true);
+    try {
+      const dataToSave = { ...formData };
+      if (dataToSave.type !== 'KM') {
+        delete dataToSave.kmSubtype;
+        delete dataToSave.contentId;
+      }
+      
+      if (editingId) {
+        await onUpdate(editingId, dataToSave);
+        setEditingId(null);
+      } else {
+        await onAdd(dataToSave);
+      }
+      
+      setFormData({ 
+        employeeId: employees.length > 0 ? employees[0].id : 1, 
+        participants: [],
+        type: 'นวัตกรรม', 
+        kmSubtype: 'OPL',
+        contentId: '',
+        title: '', 
+        description: '', 
+        date: new Date().toISOString().split('T')[0] 
+      });
+    } catch (err) {
+      console.error("Innovation submit error:", err);
+    } finally {
+      setIsSaving(false);
     }
-    
-    if (editingId) {
-      onUpdate(editingId, dataToSave);
-      setEditingId(null);
-    } else {
-      onAdd(dataToSave);
-    }
-    
-    setFormData({ 
-      employeeId: 1, 
-      participants: [],
-      type: 'นวัตกรรม', 
-      kmSubtype: 'OPL',
-      contentId: '',
-      title: '', 
-      description: '', 
-      date: new Date().toISOString().split('T')[0] 
-    });
   };
 
   const startEdit = (record: InnovationRecord) => {
@@ -825,17 +834,27 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
               />
             </div>
             <div className="md:col-span-2 flex gap-3">
-              <button type="submit" className="flex-1 bg-violet-600 text-white p-4 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-violet-700 transition-colors">
-                {editingId ? <ShieldCheck size={20} /> : <Plus size={20} />} 
-                {editingId ? 'บันทึกการแก้ไข' : 'บันทึกข้อมูล'}
+              <button 
+                type="submit" 
+                disabled={isSaving}
+                className="flex-1 bg-violet-600 text-white p-4 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSaving ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                ) : (
+                  editingId ? <ShieldCheck size={20} /> : <Plus size={20} />
+                )} 
+                {isSaving ? 'กำลังบันทึก...' : (editingId ? 'บันทึกการแก้ไข' : 'บันทึกข้อมูล')}
               </button>
               {editingId && (
                 <button 
                   type="button" 
+                  disabled={isSaving}
                   onClick={() => {
                     setEditingId(null);
                     setFormData({ 
-                      employeeId: 1, 
+                      employeeId: employees.length > 0 ? employees[0].id : 1, 
+                      participants: [],
                       type: 'นวัตกรรม', 
                       kmSubtype: 'OPL',
                       title: '', 
@@ -843,7 +862,7 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
                       date: new Date().toISOString().split('T')[0] 
                     });
                   }}
-                  className="px-6 bg-black/5 text-black/50 p-4 rounded-xl font-bold hover:bg-black/10 transition-colors"
+                  className="px-6 bg-black/5 text-black/50 p-4 rounded-xl font-bold hover:bg-black/10 transition-colors disabled:opacity-50"
                 >
                   ยกเลิก
                 </button>
@@ -1007,12 +1026,12 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
     e.preventDefault();
     setIsUploading(true);
     
-    let finalImageUrls = [...imageUrls.filter(url => url.startsWith('http'))];
-    
-    const newFilesToUpload = imageFiles.filter((_, i) => !imageUrls[i].startsWith('http'));
+    try {
+      let finalImageUrls = [...imageUrls.filter(url => url.startsWith('http'))];
+      
+      const newFilesToUpload = imageFiles.filter((_, i) => !imageUrls[i].startsWith('http'));
 
-    if (newFilesToUpload.length > 0) {
-      try {
+      if (newFilesToUpload.length > 0) {
         const uploadPromises = newFilesToUpload.map(async (file) => {
           const storageRef = ref(storage, `activities/${Date.now()}_${file.name}`);
           const snapshot = await uploadBytes(storageRef, file);
@@ -1020,38 +1039,39 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
         });
         const uploadedUrls = await Promise.all(uploadPromises);
         finalImageUrls = [...finalImageUrls, ...uploadedUrls];
-      } catch (err) {
-        console.error("Upload error:", err);
       }
+
+      const recordsToSave = groupEmployees.map(emp => ({
+        employeeId: emp.id,
+        type: headerData.type,
+        title: headerData.title || headerData.type,
+        date: headerData.date,
+        status: attendance[emp.id]?.status || 'เข้าร่วม',
+        reason: attendance[emp.id]?.reason || '',
+        imageUrl: finalImageUrls[0] || '', // Keep for backward compatibility
+        imageUrls: finalImageUrls
+      }));
+
+      if (editingGroup) {
+        await onUpdate(editingGroup, recordsToSave);
+        setEditingGroup(null);
+      } else {
+        await onAdd(recordsToSave);
+      }
+
+      setHeaderData({ 
+        type: 'กิจกรรมภายนอก',
+        title: '', 
+        date: new Date().toISOString().split('T')[0] 
+      });
+      setImageFiles([]);
+      setImageUrls([]);
+      setAttendance(employees.reduce((acc, emp) => ({ ...acc, [emp.id]: { status: 'เข้าร่วม', reason: '' } }), {}));
+    } catch (err) {
+      console.error("External activity submit error:", err);
+    } finally {
+      setIsUploading(false);
     }
-
-    const recordsToSave = groupEmployees.map(emp => ({
-      employeeId: emp.id,
-      type: headerData.type,
-      title: headerData.title || headerData.type,
-      date: headerData.date,
-      status: attendance[emp.id].status,
-      reason: attendance[emp.id].reason,
-      imageUrl: finalImageUrls[0] || '', // Keep for backward compatibility
-      imageUrls: finalImageUrls
-    }));
-
-    if (editingGroup) {
-      onUpdate(editingGroup, recordsToSave);
-      setEditingGroup(null);
-    } else {
-      onAdd(recordsToSave);
-    }
-
-    setHeaderData({ 
-      type: 'กิจกรรมภายนอก',
-      title: '', 
-      date: new Date().toISOString().split('T')[0] 
-    });
-    setImageFiles([]);
-    setImageUrls([]);
-    setAttendance(employees.reduce((acc, emp) => ({ ...acc, [emp.id]: { status: 'เข้าร่วม', reason: '' } }), {}));
-    setIsUploading(false);
   };
 
   const startEdit = (group: ActivityRecord[]) => {
@@ -1360,6 +1380,8 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
     date: new Date().toISOString().split('T')[0] 
   });
   
+  const [isSaving, setIsSaving] = useState(false);
+  
   const [attendance, setAttendance] = useState<{ [key: number]: { status: 'เข้าร่วม' | 'ไม่เข้าร่วม' | 'อื่นๆ', reason: string } }>(
     employees.reduce((acc, emp) => ({ ...acc, [emp.id]: { status: 'เข้าร่วม', reason: '' } }), {})
   );
@@ -1380,30 +1402,37 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
     }
   }, [employees]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const recordsToSave = employees.map(emp => ({
-      employeeId: emp.id,
-      type: headerData.type,
-      title: headerData.title || headerData.type,
-      date: headerData.date,
-      status: attendance[emp.id].status,
-      reason: attendance[emp.id].reason
-    }));
+    setIsSaving(true);
+    try {
+      const recordsToSave = employees.map(emp => ({
+        employeeId: emp.id,
+        type: headerData.type,
+        title: headerData.title || headerData.type,
+        date: headerData.date,
+        status: attendance[emp.id]?.status || 'เข้าร่วม',
+        reason: attendance[emp.id]?.reason || ''
+      }));
 
-    if (editingGroup) {
-      onUpdate(editingGroup, recordsToSave);
-      setEditingGroup(null);
-    } else {
-      onAdd(recordsToSave);
+      if (editingGroup) {
+        await onUpdate(editingGroup, recordsToSave);
+        setEditingGroup(null);
+      } else {
+        await onAdd(recordsToSave);
+      }
+
+      setHeaderData({ 
+        type: 'กิจกรรม',
+        title: '', 
+        date: new Date().toISOString().split('T')[0] 
+      });
+      setAttendance(employees.reduce((acc, emp) => ({ ...acc, [emp.id]: { status: 'เข้าร่วม', reason: '' } }), {}));
+    } catch (err) {
+      console.error("Activity submit error:", err);
+    } finally {
+      setIsSaving(false);
     }
-
-    setHeaderData({ 
-      type: 'กิจกรรม',
-      title: '', 
-      date: new Date().toISOString().split('T')[0] 
-    });
-    setAttendance(employees.reduce((acc, emp) => ({ ...acc, [emp.id]: { status: 'เข้าร่วม', reason: '' } }), {}));
   };
 
   const startEdit = (group: ActivityRecord[]) => {
@@ -1532,19 +1561,28 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
               {editingGroup && (
                 <button 
                   type="button" 
+                  disabled={isSaving}
                   onClick={() => {
                     setEditingGroup(null);
                     setHeaderData({ type: 'กิจกรรม', title: '', date: new Date().toISOString().split('T')[0] });
                     setAttendance(employees.reduce((acc, emp) => ({ ...acc, [emp.id]: { status: 'เข้าร่วม', reason: '' } }), {}));
                   }}
-                  className="px-8 bg-black/5 text-black/50 py-4 rounded-xl font-bold hover:bg-black/10 transition-colors"
+                  className="px-8 bg-black/5 text-black/50 py-4 rounded-xl font-bold hover:bg-black/10 transition-colors disabled:opacity-50"
                 >
                   ยกเลิก
                 </button>
               )}
-              <button type="submit" className="bg-violet-600 text-white px-8 py-4 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-violet-700 transition-shadow shadow-lg shadow-violet-600/20">
-                {editingGroup ? <ShieldCheck size={20} /> : <Plus size={20} />} 
-                {editingGroup ? 'บันทึกการแก้ไข' : `บันทึกกิจกรรมทั้งหมด (${employees.length} คน)`}
+              <button 
+                type="submit" 
+                disabled={isSaving}
+                className="bg-violet-600 text-white px-8 py-4 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-violet-700 transition-shadow shadow-lg shadow-violet-600/20 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSaving ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                ) : (
+                  editingGroup ? <ShieldCheck size={20} /> : <Plus size={20} />
+                )} 
+                {isSaving ? 'กำลังบันทึก...' : (editingGroup ? 'บันทึกการแก้ไข' : `บันทึกกิจกรรมทั้งหมด (${employees.length} คน)`)}
               </button>
             </div>
           </form>
@@ -1614,6 +1652,7 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
 
 function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin }: { employees: Employee[], records: LeaveRecord[], onAdd: (r: any) => void, onUpdate: (id: string, r: any) => void, onDelete: (id: string) => void, isAdmin: boolean }) {
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [formData, setFormData] = useState({ 
     employeeId: employees[0]?.id || 1, 
@@ -1632,21 +1671,28 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin }
     }
   }, [employees, editingId]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (editingId) {
-      onUpdate(editingId, formData);
-      setEditingId(null);
-    } else {
-      onAdd(formData);
+    setIsSaving(true);
+    try {
+      if (editingId) {
+        await onUpdate(editingId, formData);
+        setEditingId(null);
+      } else {
+        await onAdd(formData);
+      }
+      setFormData({ 
+        employeeId: employees[0]?.id || 1, 
+        type: 'ลาป่วย', 
+        reason: '', 
+        startDate: new Date().toISOString().split('T')[0], 
+        endDate: new Date().toISOString().split('T')[0] 
+      });
+    } catch (err) {
+      console.error("Leave submit error:", err);
+    } finally {
+      setIsSaving(false);
     }
-    setFormData({ 
-      employeeId: employees[0]?.id || 1, 
-      type: 'ลาป่วย', 
-      reason: '', 
-      startDate: new Date().toISOString().split('T')[0], 
-      endDate: new Date().toISOString().split('T')[0] 
-    });
   };
 
   const startEdit = (record: LeaveRecord) => {
@@ -1729,18 +1775,27 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin }
               />
             </div>
             <div className="md:col-span-2 flex gap-3">
-              <button type="submit" className="flex-1 bg-violet-600 text-white p-4 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-violet-700 transition-colors">
-                {editingId ? <ShieldCheck size={20} /> : <Plus size={20} />} 
-                {editingId ? 'บันทึกการแก้ไข' : 'บันทึกการลา'}
+              <button 
+                type="submit" 
+                disabled={isSaving}
+                className="flex-1 bg-violet-600 text-white p-4 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSaving ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                ) : (
+                  editingId ? <ShieldCheck size={20} /> : <Plus size={20} />
+                )} 
+                {isSaving ? 'กำลังบันทึก...' : (editingId ? 'บันทึกการแก้ไข' : 'บันทึกการลา')}
               </button>
               {editingId && (
                 <button 
                   type="button" 
+                  disabled={isSaving}
                   onClick={() => {
                     setEditingId(null);
-                    setFormData({ employeeId: 1, type: 'ลาป่วย', reason: '', startDate: new Date().toISOString().split('T')[0], endDate: new Date().toISOString().split('T')[0] });
+                    setFormData({ employeeId: employees[0]?.id || 1, type: 'ลาป่วย', reason: '', startDate: new Date().toISOString().split('T')[0], endDate: new Date().toISOString().split('T')[0] });
                   }}
-                  className="px-6 bg-black/5 text-black/50 p-4 rounded-xl font-bold hover:bg-black/10 transition-colors"
+                  className="px-6 bg-black/5 text-black/50 p-4 rounded-xl font-bold hover:bg-black/10 transition-colors disabled:opacity-50"
                 >
                   ยกเลิก
                 </button>
