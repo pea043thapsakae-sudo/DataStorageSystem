@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc, onSnapshot, query, where, writeBatch } from 'firebase/firestore';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { getAuth, signInAnonymously, onAuthStateChanged, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -51,16 +51,29 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 export const initAuth = () => {
   return new Promise((resolve) => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        unsubscribe();
-        resolve(user);
-      } else {
-        signInAnonymously(auth).catch(err => {
-          console.error("Auth Error:", err);
-          // Still resolve to allow app to load, but log error
-          resolve(null);
-        });
-      }
+      resolve(user);
+      unsubscribe();
     });
   });
+};
+
+export const loginWithGoogle = async () => {
+  const provider = new GoogleAuthProvider();
+  try {
+    const result = await signInWithPopup(auth, provider);
+    return result.user;
+  } catch (error) {
+    console.error("Google Auth Error:", error);
+    throw error;
+  }
+};
+
+export const loginAnonymously = async () => {
+  try {
+    const result = await signInAnonymously(auth);
+    return result.user;
+  } catch (error) {
+    console.error("Anonymous Auth Error:", error);
+    throw error;
+  }
 };

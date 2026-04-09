@@ -26,7 +26,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { EMPLOYEES, INNOVATION_TYPES, KM_SUBTYPES, ACTIVITY_TYPES, LEAVE_TYPES } from './constants';
 import { AppState, InnovationRecord, ActivityRecord, LeaveRecord, Admin, Employee } from './types';
-import { db, auth, initAuth, handleFirestoreError, OperationType, storage } from './firebase';
+import { db, auth, initAuth, handleFirestoreError, OperationType, storage, loginWithGoogle, loginAnonymously } from './firebase';
 import { 
   collection, 
   doc, 
@@ -97,13 +97,43 @@ function StatCard({ icon: Icon, label, value, color }: { icon: any, label: strin
   );
 }
 
-function LoginModal({ isOpen, onClose, onLogin, admins }: { isOpen: boolean, onClose: () => void, onLogin: (admin: Admin) => void, admins: Admin[] }) {
+function LoginModal({ isOpen, onClose, onLogin, admins, setToast }: { isOpen: boolean, onClose: () => void, onLogin: (admin: Admin) => void, admins: Admin[], setToast: (t: any) => void }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   if (!isOpen) return null;
+
+  const handleGoogleLogin = async () => {
+    setIsLoggingIn(true);
+    try {
+      await loginWithGoogle();
+      setToast({ message: 'เชื่อมต่อระบบฐานข้อมูลด้วย Google สำเร็จ', type: 'success' });
+      // We don't call onLogin here because Google Login just satisfies the Firestore rules.
+      // The user still needs to login with their Admin ID to see the Admin tab.
+      // OR we could auto-login if their email matches an admin, but let's keep it simple.
+    } catch (err) {
+      console.error("Google login error:", err);
+      setToast({ message: 'ไม่สามารถเข้าสู่ระบบด้วย Google ได้', type: 'error' });
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleAnonymousLogin = async () => {
+    setIsLoggingIn(true);
+    try {
+      await loginAnonymously();
+      setToast({ message: 'เชื่อมต่อระบบฐานข้อมูลสำเร็จ', type: 'success' });
+    } catch (err) {
+      console.error("Anonymous login error:", err);
+      setToast({ message: 'ไม่สามารถเชื่อมต่อระบบฐานข้อมูลได้ กรุณาใช้ Google Login แทน', type: 'error' });
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -189,6 +219,29 @@ function LoginModal({ isOpen, onClose, onLogin, admins }: { isOpen: boolean, onC
             <button type="submit" className="flex-1 p-3 rounded-xl font-bold bg-violet-600 text-white hover:bg-violet-700 transition-colors shadow-lg shadow-violet-600/20">เข้าสู่ระบบ</button>
           </div>
         </form>
+
+        <div className="relative py-2">
+          <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-black/5"></div></div>
+          <div className="relative flex justify-center text-[10px] uppercase tracking-widest font-bold opacity-30"><span className="bg-white px-2">หรือแก้ปัญหาการบันทึก</span></div>
+        </div>
+
+        <div className="space-y-2">
+          <button 
+            onClick={handleGoogleLogin}
+            disabled={isLoggingIn}
+            className="w-full flex items-center justify-center gap-3 p-3 rounded-xl border border-black/5 hover:bg-slate-50 transition-colors text-sm font-bold"
+          >
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
+            เชื่อมต่อด้วย Google (แนะนำ)
+          </button>
+          <button 
+            onClick={handleAnonymousLogin}
+            disabled={isLoggingIn}
+            className="w-full p-3 rounded-xl text-xs opacity-50 hover:opacity-100 transition-opacity"
+          >
+            ลองเชื่อมต่อแบบไม่ระบุตัวตนอีกครั้ง
+          </button>
+        </div>
       </motion.div>
     </div>
   );
@@ -199,6 +252,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<Admin | null>(null);
   const [showLogin, setShowLogin] = useState(false);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
   const [state, setState] = useState<AppState>({ 
     employees: EMPLOYEES,
@@ -210,8 +264,28 @@ export default function App() {
 
   // Initialize Firebase Auth
   useEffect(() => {
-    initAuth().then(() => {
+    initAuth().then(async (user) => {
       setIsAuthReady(true);
+      if (!user) {
+        // Try anonymous login automatically
+        try {
+          await loginAnonymously();
+        } catch (err) {
+          console.error("Auto anonymous login failed:", err);
+          setAuthError("ไม่สามารถเชื่อมต่อระบบฐานข้อมูลได้ กรุณากดปุ่ม 'เข้าสู่ระบบ' และเลือก 'เชื่อมต่อด้วย Google'");
+        }
+      } else {
+        // Test connection to Firestore
+        try {
+          const { getDocFromServer } = await import('firebase/firestore');
+          await getDocFromServer(doc(db, 'employees', 'test_connection'));
+        } catch (error: any) {
+          if (error.message?.includes('the client is offline') || error.message?.includes('Missing or insufficient permissions')) {
+            console.error("Firestore Connection Error:", error);
+            setAuthError("ไม่สามารถเข้าถึงฐานข้อมูลได้ (Permission Denied) กรุณาตรวจสอบสิทธิ์การเข้าถึง");
+          }
+        }
+      }
     });
   }, []);
 
@@ -249,15 +323,20 @@ export default function App() {
     const unsubEmployees = onSnapshot(collection(db, 'employees'), (snapshot) => {
       const employees = snapshot.docs.map(doc => doc.data() as Employee).sort((a, b) => a.id - b.id);
       
-      // If no employees in DB, seed with constants
-      if (employees.length === 0) {
+      // Seed only if we are sure we are authenticated and it's empty
+      if (employees.length === 0 && isAuthReady) {
+        const batch = writeBatch(db);
         EMPLOYEES.forEach(emp => {
-          setDoc(doc(db, 'employees', emp.id.toString()), emp);
+          batch.set(doc(db, 'employees', emp.id.toString()), emp);
         });
+        batch.commit().catch(err => console.error("Seeding error:", err));
       }
       
       setState(prev => ({ ...prev, employees: employees.length > 0 ? employees : EMPLOYEES }));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'employees'));
+    }, (err) => {
+      console.error("Employees listener error:", err);
+      // Don't throw here to avoid crashing the app, just log
+    });
 
     const unsubInnovation = onSnapshot(collection(db, 'innovationRecords'), (snapshot) => {
       const records = snapshot.docs.map(doc => doc.data() as InnovationRecord);
@@ -471,6 +550,17 @@ export default function App() {
         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       </AnimatePresence>
 
+      {authError && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[110] w-full max-w-md px-4">
+          <div className="bg-red-600 text-white p-4 rounded-2xl shadow-2xl flex items-center justify-between gap-4">
+            <p className="text-sm font-bold">{authError}</p>
+            <button onClick={() => setAuthError(null)} className="p-1 hover:bg-white/20 rounded-lg">
+              <Plus size={18} className="rotate-45" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Sidebar / Navigation */}
       <div className="flex flex-col md:flex-row min-h-screen">
         <nav className="w-full md:w-64 bg-white border-r border-black/5 p-6 flex flex-col gap-8">
@@ -561,6 +651,7 @@ export default function App() {
           onClose={() => setShowLogin(false)} 
           onLogin={handleLogin} 
           admins={state.admins}
+          setToast={setToast}
         />
 
         {/* Main Content */}
@@ -702,6 +793,15 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
+    
+    // Safety timeout
+    const timeout = setTimeout(() => {
+      if (isSaving) {
+        setIsSaving(false);
+        setToast({ message: "การบันทึกใช้เวลานานเกินไป กรุณาตรวจสอบอินเทอร์เน็ต", type: 'error' });
+      }
+    }, 15000);
+
     try {
       const dataToSave = { ...formData };
       if (dataToSave.type !== 'KM') {
@@ -731,8 +831,12 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
       // Show success feedback if needed, but usually the real-time sync is enough
     } catch (err) {
       console.error("Innovation submit error:", err);
-      alert("เกิดข้อผิดพลาดในการบันทึกข้อมูล กรุณาลองใหม่อีกครั้ง หรือตรวจสอบการเชื่อมต่ออินเทอร์เน็ต");
+      setToast({ 
+        message: "เกิดข้อผิดพลาดในการบันทึกข้อมูล กรุณาลองใหม่อีกครั้ง", 
+        type: 'error' 
+      });
     } finally {
+      clearTimeout(timeout);
       setIsSaving(false);
     }
   };
@@ -1060,6 +1164,14 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
     e.preventDefault();
     setIsUploading(true);
     
+    // Safety timeout
+    const timeout = setTimeout(() => {
+      if (isUploading) {
+        setIsUploading(false);
+        setToast({ message: "การอัปโหลดใช้เวลานานเกินไป กรุณาตรวจสอบอินเทอร์เน็ต", type: 'error' });
+      }
+    }, 30000); // Longer for uploads
+
     try {
       let finalImageUrls = [...imageUrls.filter(url => url.startsWith('http'))];
       
@@ -1105,8 +1217,12 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
       setAttendance(employees.reduce((acc, emp) => ({ ...acc, [emp.id]: { status: 'เข้าร่วม', reason: '' } }), {}));
     } catch (err) {
       console.error("External activity submit error:", err);
-      alert("เกิดข้อผิดพลาดในการบันทึกข้อมูลกิจกรรมภายนอก กรุณาลองใหม่อีกครั้ง");
+      setToast({ 
+        message: "เกิดข้อผิดพลาดในการบันทึกข้อมูลกิจกรรมภายนอก กรุณาลองใหม่อีกครั้ง", 
+        type: 'error' 
+      });
     } finally {
+      clearTimeout(timeout);
       setIsUploading(false);
     }
   };
@@ -1442,6 +1558,15 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
+    
+    // Safety timeout
+    const timeout = setTimeout(() => {
+      if (isSaving) {
+        setIsSaving(false);
+        setToast({ message: "การบันทึกใช้เวลานานเกินไป กรุณาตรวจสอบอินเทอร์เน็ต", type: 'error' });
+      }
+    }, 15000);
+
     try {
       const recordsToSave = employees.map(emp => ({
         employeeId: emp.id,
@@ -1469,8 +1594,12 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
       setAttendance(employees.reduce((acc, emp) => ({ ...acc, [emp.id]: { status: 'เข้าร่วม', reason: '' } }), {}));
     } catch (err) {
       console.error("Activity submit error:", err);
-      alert("เกิดข้อผิดพลาดในการบันทึกกิจกรรม กรุณาลองใหม่อีกครั้ง");
+      setToast({ 
+        message: "เกิดข้อผิดพลาดในการบันทึกกิจกรรม กรุณาลองใหม่อีกครั้ง", 
+        type: 'error' 
+      });
     } finally {
+      clearTimeout(timeout);
       setIsSaving(false);
     }
   };
@@ -1714,6 +1843,15 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
+    
+    // Safety timeout
+    const timeout = setTimeout(() => {
+      if (isSaving) {
+        setIsSaving(false);
+        setToast({ message: "การบันทึกใช้เวลานานเกินไป กรุณาตรวจสอบอินเทอร์เน็ต", type: 'error' });
+      }
+    }, 15000);
+
     try {
       if (editingId) {
         await onUpdate(editingId, formData);
@@ -1732,8 +1870,12 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
       });
     } catch (err) {
       console.error("Leave submit error:", err);
-      alert("เกิดข้อผิดพลาดในการบันทึกข้อมูลการลา กรุณาลองใหม่อีกครั้ง");
+      setToast({ 
+        message: "เกิดข้อผิดพลาดในการบันทึกข้อมูลการลา กรุณาลองใหม่อีกครั้ง", 
+        type: 'error' 
+      });
     } finally {
+      clearTimeout(timeout);
       setIsSaving(false);
     }
   };
@@ -2251,7 +2393,7 @@ function AdminSection({
       }
     } catch (err) {
       console.error("Add admin error:", err);
-      alert("เกิดข้อผิดพลาดในการเพิ่มแอดมิน");
+      setToast({ message: "เกิดข้อผิดพลาดในการเพิ่มแอดมิน", type: 'error' });
     }
   };
 
@@ -2265,7 +2407,7 @@ function AdminSection({
         setToast({ message: 'เปลี่ยนรหัสผ่านสำเร็จ', type: 'success' });
       } catch (err) {
         console.error("Change pass error:", err);
-        alert("เกิดข้อผิดพลาดในการเปลี่ยนรหัสผ่าน");
+        setToast({ message: "เกิดข้อผิดพลาดในการเปลี่ยนรหัสผ่าน", type: 'error' });
       }
     }
   };
@@ -2285,7 +2427,7 @@ function AdminSection({
       setShowAddEmployee(false);
     } catch (err) {
       console.error("Employee submit error:", err);
-      alert("เกิดข้อผิดพลาดในการบันทึกข้อมูลพนักงาน");
+      setToast({ message: "เกิดข้อผิดพลาดในการบันทึกข้อมูลพนักงาน", type: 'error' });
     }
   };
 
