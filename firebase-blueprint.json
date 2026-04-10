@@ -55,9 +55,10 @@
         "startDate": { "type": "string" },
         "endDate": { "type": "string" },
         "type": { "type": "string", "enum": ["ลาป่วย", "ลากิจ", "มาสาย", "ราชการ"] },
-        "reason": { "type": "string" }
+        "reason": { "type": "string" },
+        "duration": { "type": "string" }
       },
-      "required": ["id", "employeeId", "startDate", "endDate", "type", "reason"]
+      "required": ["id", "employeeId", "startDate", "endDate", "type", "reason", "duration"]
     },
     "Admin": {
       "title": "Admin",

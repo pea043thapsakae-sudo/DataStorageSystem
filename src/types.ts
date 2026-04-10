@@ -38,6 +38,7 @@ export interface LeaveRecord {
   endDate: string;
   type: 'ลาป่วย' | 'ลากิจ' | 'มาสาย' | 'ราชการ';
   reason: string;
+  duration: string;
 }
 
 export interface Admin {

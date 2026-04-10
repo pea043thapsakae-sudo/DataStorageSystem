@@ -47,6 +47,7 @@ service cloud.firestore {
     //   - endDate: string (required, ISO)
     //   - type: string (required, enum: ลาป่วย, ลากิจ, มาสาย, ราชการ)
     //   - reason: string (required)
+    //   - duration: string (required)
     //
     // Collection: admins
     // Document ID: {adminId} (string)

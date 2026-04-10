@@ -24,7 +24,7 @@ import {
   ShieldCheck as ShieldCheckIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { EMPLOYEES, INNOVATION_TYPES, KM_SUBTYPES, ACTIVITY_TYPES, LEAVE_TYPES } from './constants';
+import { EMPLOYEES, INNOVATION_TYPES, KM_SUBTYPES, ACTIVITY_TYPES, LEAVE_TYPES, LEAVE_DURATIONS } from './constants';
 import { AppState, InnovationRecord, ActivityRecord, LeaveRecord, Admin, Employee } from './types';
 import { db, auth, initAuth, handleFirestoreError, OperationType, storage, loginWithGoogle, loginAnonymously } from './firebase';
 import { 
@@ -1828,7 +1828,8 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
     type: 'ลาป่วย' as any, 
     reason: '', 
     startDate: new Date().toISOString().split('T')[0], 
-    endDate: new Date().toISOString().split('T')[0] 
+    endDate: new Date().toISOString().split('T')[0],
+    duration: '1 วัน'
   });
 
   useEffect(() => {
@@ -1866,7 +1867,8 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
         type: 'ลาป่วย', 
         reason: '', 
         startDate: new Date().toISOString().split('T')[0], 
-        endDate: new Date().toISOString().split('T')[0] 
+        endDate: new Date().toISOString().split('T')[0],
+        duration: '1 วัน'
       });
     } catch (err) {
       console.error("Leave submit error:", err);
@@ -1887,7 +1889,8 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
       type: record.type,
       reason: record.reason,
       startDate: record.startDate,
-      endDate: record.endDate
+      endDate: record.endDate,
+      duration: record.duration || '1 วัน'
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -1948,7 +1951,17 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
                 onChange={e => setFormData({ ...formData, endDate: e.target.value })}
               />
             </div>
-            <div className="md:col-span-2 space-y-2">
+            <div className="space-y-2">
+              <label className="text-xs font-bold uppercase tracking-widest opacity-50">ช่วงเวลา/จำนวนวัน</label>
+              <select 
+                className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500"
+                value={formData.duration}
+                onChange={e => setFormData({ ...formData, duration: e.target.value })}
+              >
+                {LEAVE_DURATIONS.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+            <div className="md:col-span-1 space-y-2">
               <label className="text-xs font-bold uppercase tracking-widest opacity-50">เหตุผลการลา</label>
               <input 
                 type="text"
@@ -1978,7 +1991,14 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
                   disabled={isSaving}
                   onClick={() => {
                     setEditingId(null);
-                    setFormData({ employeeId: employees[0]?.id || 1, type: 'ลาป่วย', reason: '', startDate: new Date().toISOString().split('T')[0], endDate: new Date().toISOString().split('T')[0] });
+                    setFormData({ 
+                      employeeId: employees[0]?.id || 1, 
+                      type: 'ลาป่วย', 
+                      reason: '', 
+                      startDate: new Date().toISOString().split('T')[0], 
+                      endDate: new Date().toISOString().split('T')[0],
+                      duration: '1 วัน'
+                    });
                   }}
                   className="px-6 bg-black/5 text-black/50 p-4 rounded-xl font-bold hover:bg-black/10 transition-colors disabled:opacity-50"
                 >
@@ -2011,6 +2031,7 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
                           record.type === 'ลากิจ' ? 'bg-blue-100 text-blue-700' :
                           record.type === 'มาสาย' ? 'bg-yellow-100 text-yellow-700' : 'bg-purple-100 text-purple-700'
                         }`}>{record.type}</span>
+                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">{record.duration || '1 วัน'}</span>
                         <span className="text-xs opacity-50">{record.startDate === record.endDate ? record.startDate : `${record.startDate} ถึง ${record.endDate}`}</span>
                       </div>
                       <h4 className="font-bold">{record.reason}</h4>
