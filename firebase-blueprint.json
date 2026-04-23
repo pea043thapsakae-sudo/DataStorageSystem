@@ -21,7 +21,7 @@
         "employeeId": { "type": "number" },
         "participants": { "type": "array", "items": { "type": "number" } },
         "date": { "type": "string" },
-        "type": { "type": "string", "enum": ["นวัตกรรม", "KM"] },
+        "type": { "type": "string", "enum": ["นวัตกรรม", "KM", "ความคิดสร้างสรรค์"] },
         "kmSubtype": { "type": "string", "enum": ["OPL", "OPK"] },
         "contentId": { "type": "string" },
         "title": { "type": "string" },

@@ -22,7 +22,7 @@ export const EMPLOYEES: Employee[] = [
   { id: 19, name: 'นางสาวดวงพร เหลืองเถลิงพงษ์', position: 'ชบค.', group: 'B' },
 ];
 
-export const INNOVATION_TYPES = ['นวัตกรรม', 'KM'] as const;
+export const INNOVATION_TYPES = ['นวัตกรรม', 'KM', 'ความคิดสร้างสรรค์'] as const;
 export const KM_SUBTYPES = ['OPL', 'OPK'] as const;
 export const ACTIVITY_TYPES = ['กิจกรรม', 'กิจกรรมภายนอก'] as const;
 export const LEAVE_TYPES = ['ลาป่วย', 'ลากิจ', 'มาสาย', 'ราชการ'] as const;

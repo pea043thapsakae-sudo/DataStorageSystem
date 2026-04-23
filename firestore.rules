@@ -20,7 +20,7 @@ service cloud.firestore {
     //   - employeeId: number (required)
     //   - participants: list of numbers (optional)
     //   - date: string (required, ISO)
-    //   - type: string (required, enum: นวัตกรรม, KM)
+    //   - type: string (required, enum: นวัตกรรม, KM, ความคิดสร้างสรรค์)
     //   - kmSubtype: string (optional, enum: OPL, OPK)
     //   - contentId: string (optional)
     //   - title: string (required)

@@ -12,7 +12,7 @@ export interface InnovationRecord {
   employeeId: number; // Primary author
   participants: number[]; // Additional members
   date: string;
-  type: 'นวัตกรรม' | 'KM';
+  type: 'นวัตกรรม' | 'KM' | 'ความคิดสร้างสรรค์';
   kmSubtype?: 'OPL' | 'OPK';
   contentId?: string;
   title: string;

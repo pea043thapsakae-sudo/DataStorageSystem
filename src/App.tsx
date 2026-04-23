@@ -555,7 +555,7 @@ export default function App() {
               active={activeTab === 'innovation'} 
               onClick={() => setActiveTab('innovation')}
               icon={<Lightbulb size={20} />}
-              label="นวัตกรรม / KM"
+              label="นวัตกรรม / KM/ความคิดสร้างสรรค์"
             />
             <NavButton 
               active={activeTab === 'activity'} 
@@ -738,7 +738,7 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
   const [formData, setFormData] = useState<{
     employeeId: number;
     participants: number[];
-    type: 'นวัตกรรม' | 'KM';
+    type: 'นวัตกรรม' | 'KM' | 'ความคิดสร้างสรรค์';
     kmSubtype?: 'OPL' | 'OPK';
     contentId?: string;
     title: string;
@@ -839,11 +839,11 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
         onClose={() => setDeleteConfirmId(null)}
         onConfirm={() => deleteConfirmId && onDelete(deleteConfirmId)}
         title="ยืนยันการลบข้อมูล"
-        message="คุณแน่ใจหรือไม่ว่าต้องการลบข้อมูลการทำนวัตกรรม/KM นี้? การกระทำนี้ไม่สามารถย้อนกลับได้"
+        message="คุณแน่ใจหรือไม่ว่าต้องการลบข้อมูลการทำนวัตกรรม/KM/ความคิดสร้างสรรค์ นี้? การกระทำนี้ไม่สามารถย้อนกลับได้"
       />
 
       <header>
-        <h2 className="text-3xl font-bold serif">{editingId ? 'แก้ไขข้อมูลนวัตกรรม / KM' : 'การทำนวัตกรรม / KM'}</h2>
+        <h2 className="text-3xl font-bold serif">{editingId ? 'แก้ไขข้อมูลนวัตกรรม / KM/ความคิดสร้างสรรค์' : 'การทำนวัตกรรม / KM/ความคิดสร้างสรรค์'}</h2>
         <p className="text-[#1A1A1A]/50">บันทึกความคิดสร้างสรรค์ OPL, OPK และการจัดการความรู้</p>
       </header>
 
