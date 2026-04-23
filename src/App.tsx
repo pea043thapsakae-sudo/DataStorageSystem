@@ -111,12 +111,25 @@ function LoginModal({ isOpen, onClose, onLogin, admins, firebaseUser, setToast }
     try {
       await loginWithGoogle();
       setToast({ message: 'เชื่อมต่อระบบฐานข้อมูลด้วย Google สำเร็จ', type: 'success' });
-      // We don't call onLogin here because Google Login just satisfies the Firestore rules.
-      // The user still needs to login with their Admin ID to see the Admin tab.
-      // OR we could auto-login if their email matches an admin, but let's keep it simple.
-    } catch (err) {
-      console.error("Google login error:", err);
-      setToast({ message: 'ไม่สามารถเข้าสู่ระบบด้วย Google ได้', type: 'error' });
+    } catch (err: any) {
+      console.error("Google login error details:", err);
+      let msg = 'ไม่สามารถเข้าสู่ระบบด้วย Google ได้';
+      
+      const errorCode = err?.code || err?.message || String(err);
+      
+      if (errorCode.includes('popup-blocked')) {
+        msg = 'ป๊อปอัปถูกบล็อก กรุณาอนุญาตให้เปิดป๊อปอัปสำหรับเว็บไซต์นี้ หรือเปิดแอปในหน้าต่างใหม่';
+      } else if (errorCode.includes('operation-not-allowed')) {
+        msg = 'ระบบยังไม่ได้เปิดใช้งาน Google Login ใน Firebase Console';
+      } else if (errorCode.includes('cancelled-popup-request') || errorCode.includes('popup-closed-by-user')) {
+        msg = 'การเชื่อมต่อถูกยกเลิก (หน้าต่างถูกปิด)';
+      } else if (err?.message) {
+        msg = `เกิดข้อผิดพลาด: ${err.message}`;
+      } else if (typeof err === 'string') {
+        msg = `ข้อผิดพลาด: ${err}`;
+      }
+
+      setToast({ message: msg, type: 'error' });
     } finally {
       setIsLoggingIn(false);
     }
@@ -225,7 +238,7 @@ function LoginModal({ isOpen, onClose, onLogin, admins, firebaseUser, setToast }
           <div className="relative flex justify-center text-[10px] uppercase tracking-widest font-bold opacity-30"><span className="bg-white px-2">หรือแก้ปัญหาการบันทึก</span></div>
         </div>
 
-        <div className="space-y-2">
+        <div className="space-y-3">
           <button 
             onClick={handleGoogleLogin}
             disabled={isLoggingIn}
@@ -236,6 +249,18 @@ function LoginModal({ isOpen, onClose, onLogin, admins, firebaseUser, setToast }
             <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
             {firebaseUser && !firebaseUser.isAnonymous ? 'เชื่อมต่อ Google แล้ว ✓' : 'เชื่อมต่อด้วย Google (แนะนำ)'}
           </button>
+
+          {(!firebaseUser || firebaseUser.isAnonymous) && (
+            <a 
+              href={window.location.href} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="block w-full text-center p-3 rounded-xl border border-dashed border-violet-200 text-violet-600 hover:bg-violet-50 transition-colors text-xs font-bold"
+            >
+              เปิดแอปในหน้าต่างใหม่ (หากเชื่อมต่อไม่ได้)
+            </a>
+          )}
+
           <button 
             onClick={handleAnonymousLogin}
             disabled={isLoggingIn}
