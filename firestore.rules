@@ -89,22 +89,22 @@ service cloud.firestore {
     // ===============================================================
 
     match /employees/{employeeId} {
-      allow read: if isAdmin();
+      allow read: if true;
       allow write: if isAdmin();
     }
 
     match /innovationRecords/{recordId} {
-      allow read: if isAdmin();
+      allow read: if true;
       allow write: if isAdmin();
     }
 
     match /activityRecords/{recordId} {
-      allow read: if isAdmin();
+      allow read: if true;
       allow write: if isAdmin();
     }
 
     match /leaveRecords/{recordId} {
-      allow read: if isAdmin();
+      allow read: if true;
       allow write: if isAdmin();
     }
 

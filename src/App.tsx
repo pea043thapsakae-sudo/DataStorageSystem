@@ -264,28 +264,8 @@ export default function App() {
 
   // Initialize Firebase Auth
   useEffect(() => {
-    initAuth().then(async (user) => {
+    initAuth().then(() => {
       setIsAuthReady(true);
-      if (!user) {
-        // Try anonymous login automatically
-        try {
-          await loginAnonymously();
-        } catch (err) {
-          console.error("Auto anonymous login failed:", err);
-          setAuthError("ไม่สามารถเชื่อมต่อระบบฐานข้อมูลได้ กรุณากดปุ่ม 'เข้าสู่ระบบ' และเลือก 'เชื่อมต่อด้วย Google'");
-        }
-      } else {
-        // Test connection to Firestore
-        try {
-          const { getDocFromServer } = await import('firebase/firestore');
-          await getDocFromServer(doc(db, 'employees', 'test_connection'));
-        } catch (error: any) {
-          if (error.message?.includes('the client is offline') || error.message?.includes('Missing or insufficient permissions')) {
-            console.error("Firestore Connection Error:", error);
-            setAuthError("ไม่สามารถเข้าถึงฐานข้อมูลได้ (Permission Denied) กรุณาตรวจสอบสิทธิ์การเข้าถึง");
-          }
-        }
-      }
     });
   }, []);
 
@@ -293,65 +273,47 @@ export default function App() {
   useEffect(() => {
     if (!isAuthReady) return;
 
-    const unsubAdmins = onSnapshot(collection(db, 'admins'), (snapshot) => {
-      const admins = snapshot.docs.map(doc => doc.data() as Admin);
-      const defaultAdmins = [{ id: '9012844', password: 'PEATSG043', name: 'แอดมินหลัก' }];
-      
-      // Ensure default admin exists in DB and has correct password
-      defaultAdmins.forEach(admin => {
-        const existing = admins.find(a => a.id === admin.id);
-        if (!existing || existing.password !== admin.password) {
-          setDoc(doc(db, 'admins', admin.id), admin);
-        }
-      });
-
-      // Merge default admins into state to ensure they are always available with correct password
-      const finalAdmins = [...admins];
-      defaultAdmins.forEach(def => {
-        const idx = finalAdmins.findIndex(a => a.id === def.id);
-        if (idx === -1) {
-          finalAdmins.push(def);
-        } else {
-          // Override with default password if different
-          finalAdmins[idx] = { ...finalAdmins[idx], password: def.password };
-        }
-      });
-      
-      setState(prev => ({ ...prev, admins: finalAdmins }));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'admins'));
-
+    // Listen to collections that are public read
     const unsubEmployees = onSnapshot(collection(db, 'employees'), (snapshot) => {
       const employees = snapshot.docs.map(doc => doc.data() as Employee).sort((a, b) => a.id - b.id);
-      
-      // Seed only if we are sure we are authenticated and it's empty
-      if (employees.length === 0 && isAuthReady) {
-        const batch = writeBatch(db);
-        EMPLOYEES.forEach(emp => {
-          batch.set(doc(db, 'employees', emp.id.toString()), emp);
-        });
-        batch.commit().catch(err => console.error("Seeding error:", err));
-      }
-      
       setState(prev => ({ ...prev, employees: employees.length > 0 ? employees : EMPLOYEES }));
-    }, (err) => {
-      console.error("Employees listener error:", err);
-      // Don't throw here to avoid crashing the app, just log
-    });
+    }, (err) => console.error("Employees listener error:", err));
 
     const unsubInnovation = onSnapshot(collection(db, 'innovationRecords'), (snapshot) => {
       const records = snapshot.docs.map(doc => doc.data() as InnovationRecord);
       setState(prev => ({ ...prev, innovationRecords: records }));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'innovationRecords'));
+    }, (err) => console.error("Innovation listener error:", err));
 
     const unsubActivity = onSnapshot(collection(db, 'activityRecords'), (snapshot) => {
       const records = snapshot.docs.map(doc => doc.data() as ActivityRecord);
       setState(prev => ({ ...prev, activityRecords: records }));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'activityRecords'));
+    }, (err) => console.error("Activity listener error:", err));
 
     const unsubLeave = onSnapshot(collection(db, 'leaveRecords'), (snapshot) => {
       const records = snapshot.docs.map(doc => doc.data() as LeaveRecord);
       setState(prev => ({ ...prev, leaveRecords: records }));
-    }, (err) => handleFirestoreError(err, OperationType.LIST, 'leaveRecords'));
+    }, (err) => console.error("Leave listener error:", err));
+
+    // Only listen to admins if authenticated, otherwise use default
+    let unsubAdmins = () => {};
+    if (auth.currentUser) {
+      unsubAdmins = onSnapshot(collection(db, 'admins'), (snapshot) => {
+        const admins = snapshot.docs.map(doc => doc.data() as Admin);
+        const defaultAdmins = [{ id: '9012844', password: 'PEATSG043', name: 'แอดมินหลัก' }];
+        
+        const finalAdmins = [...admins];
+        defaultAdmins.forEach(def => {
+          const idx = finalAdmins.findIndex(a => a.id === def.id);
+          if (idx === -1) {
+            finalAdmins.push(def);
+          } else {
+            finalAdmins[idx] = { ...finalAdmins[idx], password: def.password };
+          }
+        });
+        
+        setState(prev => ({ ...prev, admins: finalAdmins }));
+      }, (err) => console.error("Admins listener error:", err));
+    }
 
     return () => {
       unsubAdmins();
@@ -360,7 +322,7 @@ export default function App() {
       unsubActivity();
       unsubLeave();
     };
-  }, [isAuthReady]);
+  }, [isAuthReady, auth.currentUser]);
 
   const isAdmin = !!currentUser;
 
@@ -552,10 +514,21 @@ export default function App() {
 
       {authError && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[110] w-full max-w-md px-4">
-          <div className="bg-red-600 text-white p-4 rounded-2xl shadow-2xl flex items-center justify-between gap-4">
-            <p className="text-sm font-bold">{authError}</p>
-            <button onClick={() => setAuthError(null)} className="p-1 hover:bg-white/20 rounded-lg">
-              <Plus size={18} className="rotate-45" />
+          <div className="bg-red-600 text-white p-4 rounded-2xl shadow-2xl flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm font-bold">{authError}</p>
+              <button onClick={() => setAuthError(null)} className="p-1 hover:bg-white/20 rounded-lg shrink-0">
+                <Plus size={18} className="rotate-45" />
+              </button>
+            </div>
+            <button 
+              onClick={() => {
+                setAuthError(null);
+                setShowLogin(true);
+              }}
+              className="w-full py-2 bg-white text-red-600 rounded-xl font-bold text-xs hover:bg-white/90 transition-colors"
+            >
+              ไปที่หน้าเข้าสู่ระบบเพื่อแก้ไข
             </button>
           </div>
         </div>
@@ -568,10 +541,13 @@ export default function App() {
             <div className="w-10 h-10 bg-violet-600 rounded-xl flex items-center justify-center text-white">
               <Users size={24} />
             </div>
-            <div>
-              <h1 className="font-bold text-lg leading-tight">ระบบบันทึกข้อมูล</h1>
-              <p className="text-xs opacity-50 uppercase tracking-wider">Employee Records</p>
-            </div>
+              <div>
+                <h1 className="font-bold text-lg leading-tight flex items-center gap-2">
+                  ระบบบันทึกข้อมูล
+                  <span className="text-[10px] bg-violet-100 text-violet-600 px-1.5 py-0.5 rounded-full">v2.1</span>
+                </h1>
+                <p className="text-xs opacity-50 uppercase tracking-wider">Employee Records</p>
+              </div>
           </div>
 
           <div className="flex flex-col gap-2">
