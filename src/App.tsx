@@ -26,7 +26,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { EMPLOYEES, INNOVATION_TYPES, KM_SUBTYPES, ACTIVITY_TYPES, LEAVE_TYPES, LEAVE_DURATIONS } from './constants';
 import { AppState, InnovationRecord, ActivityRecord, LeaveRecord, Admin, Employee } from './types';
-import { db, auth, initAuth, handleFirestoreError, OperationType, storage, loginWithGoogle, loginAnonymously } from './firebase';
+import { db, auth, initAuth, handleFirestoreError, OperationType, storage, loginWithGoogle, loginAnonymously, onAuthStateChanged } from './firebase';
 import { 
   collection, 
   doc, 
@@ -97,7 +97,7 @@ function StatCard({ icon: Icon, label, value, color }: { icon: any, label: strin
   );
 }
 
-function LoginModal({ isOpen, onClose, onLogin, admins, setToast }: { isOpen: boolean, onClose: () => void, onLogin: (admin: Admin) => void, admins: Admin[], setToast: (t: any) => void }) {
+function LoginModal({ isOpen, onClose, onLogin, admins, firebaseUser, setToast }: { isOpen: boolean, onClose: () => void, onLogin: (admin: Admin) => void, admins: Admin[], firebaseUser: any, setToast: (t: any) => void }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -229,17 +229,21 @@ function LoginModal({ isOpen, onClose, onLogin, admins, setToast }: { isOpen: bo
           <button 
             onClick={handleGoogleLogin}
             disabled={isLoggingIn}
-            className="w-full flex items-center justify-center gap-3 p-3 rounded-xl border border-black/5 hover:bg-slate-50 transition-colors text-sm font-bold"
+            className={`w-full flex items-center justify-center gap-3 p-3 rounded-xl border transition-colors text-sm font-bold ${
+              firebaseUser && !firebaseUser.isAnonymous ? 'bg-green-50 border-green-200 text-green-700' : 'border-black/5 hover:bg-slate-50'
+            }`}
           >
             <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
-            เชื่อมต่อด้วย Google (แนะนำ)
+            {firebaseUser && !firebaseUser.isAnonymous ? 'เชื่อมต่อ Google แล้ว ✓' : 'เชื่อมต่อด้วย Google (แนะนำ)'}
           </button>
           <button 
             onClick={handleAnonymousLogin}
             disabled={isLoggingIn}
-            className="w-full p-3 rounded-xl text-xs opacity-50 hover:opacity-100 transition-opacity"
+            className={`w-full p-3 rounded-xl text-xs transition-opacity ${
+              firebaseUser?.isAnonymous ? 'text-green-600 font-bold' : 'opacity-50 hover:opacity-100'
+            }`}
           >
-            ลองเชื่อมต่อแบบไม่ระบุตัวตนอีกครั้ง
+            {firebaseUser?.isAnonymous ? 'เชื่อมต่อแบบไม่ระบุตัวตนแล้ว' : 'ลองเชื่อมต่อแบบไม่ระบุตัวตนอีกครั้ง'}
           </button>
         </div>
       </motion.div>
@@ -250,6 +254,7 @@ function LoginModal({ isOpen, onClose, onLogin, admins, setToast }: { isOpen: bo
 export default function App() {
   const [activeTab, setActiveTab] = useState<'innovation' | 'activity' | 'external' | 'leave' | 'report' | 'admin'>('innovation');
   const [currentUser, setCurrentUser] = useState<Admin | null>(null);
+  const [firebaseUser, setFirebaseUser] = useState(auth.currentUser);
   const [showLogin, setShowLogin] = useState(false);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -264,7 +269,8 @@ export default function App() {
 
   // Initialize Firebase Auth
   useEffect(() => {
-    initAuth().then(() => {
+    return onAuthStateChanged(auth, (user) => {
+      setFirebaseUser(user);
       setIsAuthReady(true);
     });
   }, []);
@@ -296,7 +302,7 @@ export default function App() {
 
     // Only listen to admins if authenticated, otherwise use default
     let unsubAdmins = () => {};
-    if (auth.currentUser) {
+    if (firebaseUser) {
       unsubAdmins = onSnapshot(collection(db, 'admins'), (snapshot) => {
         const admins = snapshot.docs.map(doc => doc.data() as Admin);
         const defaultAdmins = [{ id: '9012844', password: 'PEATSG043', name: 'แอดมินหลัก' }];
@@ -322,7 +328,7 @@ export default function App() {
       unsubActivity();
       unsubLeave();
     };
-  }, [isAuthReady, auth.currentUser]);
+  }, [isAuthReady, firebaseUser]);
 
   const isAdmin = !!currentUser;
 
@@ -627,6 +633,7 @@ export default function App() {
           onClose={() => setShowLogin(false)} 
           onLogin={handleLogin} 
           admins={state.admins}
+          firebaseUser={firebaseUser}
           setToast={setToast}
         />
 
@@ -779,6 +786,14 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
     }, 15000);
 
     try {
+      if (!auth.currentUser) {
+        throw new Error(JSON.stringify({ 
+          error: "Missing or insufficient permissions: Not logged in with Google",
+          operationType: 'write',
+          path: 'innovationRecords'
+        }));
+      }
+
       const dataToSave = { ...formData };
       if (dataToSave.type !== 'KM') {
         delete dataToSave.kmSubtype;
@@ -805,10 +820,20 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
         date: new Date().toISOString().split('T')[0] 
       });
       // Show success feedback if needed, but usually the real-time sync is enough
-    } catch (err) {
+    } catch (err: any) {
       console.error("Innovation submit error:", err);
+      let msg = "เกิดข้อผิดพลาดในการบันทึกข้อมูล กรุณาลองใหม่อีกครั้ง";
+      try {
+        const errInfo = JSON.parse(err.message);
+        if (errInfo.error && (errInfo.error.includes("permission") || errInfo.error.includes("insufficient"))) {
+          msg = "สิทธิ์ไม่เพียงพอ: กรุณาไปที่เมนูแอดมินและเลือก 'เชื่อมต่อด้วย Google'";
+        } else if (errInfo.error && errInfo.error.includes("Quota")) {
+          msg = "โควตาฐานข้อมูลเต็ม (Spark Plan) กรุณารอรีเซ็ตในวันถัดไป";
+        }
+      } catch (e) { /* use default msg */ }
+      
       setToast({ 
-        message: "เกิดข้อผิดพลาดในการบันทึกข้อมูล กรุณาลองใหม่อีกครั้ง", 
+        message: msg, 
         type: 'error' 
       });
     } finally {
@@ -1149,6 +1174,14 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
     }, 30000); // Longer for uploads
 
     try {
+      if (!auth.currentUser) {
+        throw new Error(JSON.stringify({ 
+          error: "Missing or insufficient permissions: Not logged in with Google",
+          operationType: 'write',
+          path: 'activityRecords (external)'
+        }));
+      }
+
       let finalImageUrls = [...imageUrls.filter(url => url.startsWith('http'))];
       
       const newFilesToUpload = imageFiles.filter((_, i) => !imageUrls[i].startsWith('http'));
@@ -1191,10 +1224,20 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
       setImageFiles([]);
       setImageUrls([]);
       setAttendance(employees.reduce((acc, emp) => ({ ...acc, [emp.id]: { status: 'เข้าร่วม', reason: '' } }), {}));
-    } catch (err) {
+    } catch (err: any) {
       console.error("External activity submit error:", err);
+      let msg = "เกิดข้อผิดพลาดในการบันทึกข้อมูลกิจกรรมภายนอก กรุณาลองใหม่อีกครั้ง";
+      try {
+        const errInfo = JSON.parse(err.message);
+        if (errInfo.error && (errInfo.error.includes("permission") || errInfo.error.includes("insufficient"))) {
+          msg = "สิทธิ์ไม่เพียงพอ: กรุณาไปที่เมนูแอดมินและเลือก 'เชื่อมต่อด้วย Google'";
+        } else if (errInfo.error && errInfo.error.includes("Quota")) {
+          msg = "โควตาฐานข้อมูลเต็ม (Spark Plan) กรุณารอรีเซ็ตในวันถัดไป";
+        }
+      } catch (e) { /* use default msg */ }
+      
       setToast({ 
-        message: "เกิดข้อผิดพลาดในการบันทึกข้อมูลกิจกรรมภายนอก กรุณาลองใหม่อีกครั้ง", 
+        message: msg, 
         type: 'error' 
       });
     } finally {
@@ -1544,6 +1587,14 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
     }, 15000);
 
     try {
+      if (!auth.currentUser) {
+        throw new Error(JSON.stringify({ 
+          error: "Missing or insufficient permissions: Not logged in with Google",
+          operationType: 'write',
+          path: 'activityRecords'
+        }));
+      }
+
       const recordsToSave = employees.map(emp => ({
         employeeId: emp.id,
         type: headerData.type,
@@ -1568,10 +1619,20 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
         date: new Date().toISOString().split('T')[0] 
       });
       setAttendance(employees.reduce((acc, emp) => ({ ...acc, [emp.id]: { status: 'เข้าร่วม', reason: '' } }), {}));
-    } catch (err) {
+    } catch (err: any) {
       console.error("Activity submit error:", err);
+      let msg = "เกิดข้อผิดพลาดในการบันทึกกิจกรรม กรุณาลองใหม่อีกครั้ง";
+      try {
+        const errInfo = JSON.parse(err.message);
+        if (errInfo.error && (errInfo.error.includes("permission") || errInfo.error.includes("insufficient"))) {
+          msg = "สิทธิ์ไม่เพียงพอ: กรุณาไปที่เมนูแอดมินและเลือก 'เชื่อมต่อด้วย Google'";
+        } else if (errInfo.error && errInfo.error.includes("Quota")) {
+          msg = "โควตาฐานข้อมูลเต็ม (Spark Plan) กรุณารอรีเซ็ตในวันถัดไป";
+        }
+      } catch (e) { /* use default msg */ }
+      
       setToast({ 
-        message: "เกิดข้อผิดพลาดในการบันทึกกิจกรรม กรุณาลองใหม่อีกครั้ง", 
+        message: msg, 
         type: 'error' 
       });
     } finally {
@@ -1830,6 +1891,14 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
     }, 15000);
 
     try {
+      if (!auth.currentUser) {
+        throw new Error(JSON.stringify({ 
+          error: "Missing or insufficient permissions: Not logged in with Google",
+          operationType: 'write',
+          path: 'leaveRecords'
+        }));
+      }
+
       if (editingId) {
         await onUpdate(editingId, formData);
         setEditingId(null);
@@ -1846,10 +1915,20 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
         endDate: new Date().toISOString().split('T')[0],
         duration: '1 วัน'
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error("Leave submit error:", err);
+      let msg = "เกิดข้อผิดพลาดในการบันทึกข้อมูลการลา กรุณาลองใหม่อีกครั้ง";
+      try {
+        const errInfo = JSON.parse(err.message);
+        if (errInfo.error && (errInfo.error.includes("permission") || errInfo.error.includes("insufficient"))) {
+          msg = "สิทธิ์ไม่เพียงพอ: กรุณาไปที่เมนูแอดมินและเลือก 'เชื่อมต่อด้วย Google'";
+        } else if (errInfo.error && errInfo.error.includes("Quota")) {
+          msg = "โควตาฐานข้อมูลเต็ม (Spark Plan) กรุณารอรีเซ็ตในวันถัดไป";
+        }
+      } catch (e) { /* use default msg */ }
+      
       setToast({ 
-        message: "เกิดข้อผิดพลาดในการบันทึกข้อมูลการลา กรุณาลองใหม่อีกครั้ง", 
+        message: msg, 
         type: 'error' 
       });
     } finally {
