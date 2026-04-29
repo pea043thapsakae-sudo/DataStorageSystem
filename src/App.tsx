@@ -21,6 +21,8 @@ import {
   LogOut,
   Shield,
   Edit2,
+  Eye,
+  EyeOff,
   ShieldCheck as ShieldCheckIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -102,59 +104,14 @@ function LoginModal({ isOpen, onClose, onLogin, admins, firebaseUser, setToast }
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
-  const [authDomainError, setAuthDomainError] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleGoogleLogin = async () => {
-    setIsLoggingIn(true);
-    setAuthDomainError(false);
-    try {
-      await loginWithGoogle();
-      setToast({ message: 'เชื่อมต่อระบบฐานข้อมูลด้วย Google สำเร็จ', type: 'success' });
-    } catch (err: any) {
-      console.error("Google login error details:", err);
-      let msg = 'ไม่สามารถเข้าสู่ระบบด้วย Google ได้';
-      
-      const errorCode = err?.code || err?.message || String(err);
-      
-      if (errorCode.includes('popup-blocked')) {
-        msg = 'ป๊อปอัปถูกบล็อก กรุณาอนุญาตให้เปิดป๊อปอัปสำหรับเว็บไซต์นี้ หรือใช้ "เชื่อมต่อด่วน" ด้านล่าง';
-      } else if (errorCode.includes('unauthorized-domain')) {
-        msg = 'ยังไม่ได้อนุญาตโดเมนใน Firebase Console';
-        setAuthDomainError(true);
-      } else if (errorCode.includes('operation-not-allowed')) {
-        msg = 'ระบบยังไม่ได้เปิดใช้งาน Google Login ใน Firebase Console';
-      } else if (errorCode.includes('cancelled-popup-request') || errorCode.includes('popup-closed-by-user')) {
-        msg = 'การเชื่อมต่อถูกยกเลิก (หน้าต่างถูกปิด)';
-      } else if (err?.message) {
-        msg = `เกิดข้อผิดพลาด: ${err.message}`;
-      } else if (typeof err === 'string') {
-        msg = `ข้อผิดพลาด: ${err}`;
-      }
-
-      setToast({ message: msg, type: 'error' });
-    } finally {
-      setIsLoggingIn(false);
-    }
-  };
-
-  const handleAnonymousLogin = async () => {
-    setIsLoggingIn(true);
-    try {
-      await loginAnonymously();
-      setToast({ message: 'เชื่อมต่อระบบฐานข้อมูลสำเร็จ', type: 'success' });
-    } catch (err) {
-      console.error("Anonymous login error:", err);
-      setToast({ message: 'ไม่สามารถเชื่อมต่อระบบฐานข้อมูลได้ กรุณาใช้ Google Login แทน', type: 'error' });
-    } finally {
-      setIsLoggingIn(false);
-    }
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsLoggingIn(true);
+    setError('');
     
     // Normalize Thai numerals to Arabic numerals
     const normalize = (str: string) => str.replace(/[๐-๙]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0x0E50 + 48));
@@ -162,7 +119,7 @@ function LoginModal({ isOpen, onClose, onLogin, admins, firebaseUser, setToast }
     const cleanUsername = normalize(username.trim());
     const cleanPassword = normalize(password.trim());
     
-    // Hardcoded fallback for the primary admin to ensure access even if DB sync fails
+    // Hardcoded fallback for the primary admin
     const defaultAdmin = { id: '9012844', password: 'PEATSG043', name: 'แอดมินหลัก' };
     
     let admin = admins.find(a => a.id === cleanUsername && a.password === cleanPassword);
@@ -172,14 +129,24 @@ function LoginModal({ isOpen, onClose, onLogin, admins, firebaseUser, setToast }
     }
     
     if (admin) {
-      onLogin(admin);
-      setUsername('');
-      setPassword('');
-      setError('');
-      onClose();
+      try {
+        // Automatic background connection to database to satisfy security rules
+        if (!firebaseUser) {
+          await loginAnonymously();
+        }
+        onLogin(admin);
+        setUsername('');
+        setPassword('');
+        setError('');
+        onClose();
+      } catch (err) {
+        console.error("Auth error:", err);
+        setError('ไม่สามารถเชื่อมต่อฐานข้อมูลได้ กรุณาลองใหม่อีกครั้ง');
+      }
     } else {
       setError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง');
     }
+    setIsLoggingIn(false);
   };
 
   return (
@@ -198,14 +165,15 @@ function LoginModal({ isOpen, onClose, onLogin, admins, firebaseUser, setToast }
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1">
-            <label className="text-[10px] font-bold uppercase tracking-widest opacity-50">ชื่อผู้ใช้</label>
+            <label className="text-[10px] font-bold uppercase tracking-widest opacity-50">Admin ID</label>
             <input 
               type="text"
               required
-              placeholder="9012844"
+              placeholder="รหัสพนักงาน"
               className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500"
               value={username}
               onChange={e => setUsername(e.target.value)}
+              disabled={isLoggingIn}
             />
           </div>
           <div className="space-y-1">
@@ -217,13 +185,14 @@ function LoginModal({ isOpen, onClose, onLogin, admins, firebaseUser, setToast }
                 className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500 pr-10"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
+                disabled={isLoggingIn}
               />
               <button 
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-black/20 hover:text-black/50"
               >
-                {showPassword ? <ShieldCheck size={18} /> : <Lock size={18} />}
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
           </div>
@@ -233,62 +202,23 @@ function LoginModal({ isOpen, onClose, onLogin, admins, firebaseUser, setToast }
             </div>
           )}
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 p-3 rounded-xl font-bold bg-black/5 hover:bg-black/10 transition-colors">ยกเลิก</button>
-            <button type="submit" className="flex-1 p-3 rounded-xl font-bold bg-violet-600 text-white hover:bg-violet-700 transition-colors shadow-lg shadow-violet-600/20">เข้าสู่ระบบ</button>
+            <button 
+              type="button" 
+              onClick={onClose} 
+              disabled={isLoggingIn}
+              className="flex-1 p-3 rounded-xl font-bold bg-black/5 hover:bg-black/10 transition-colors disabled:opacity-50"
+            >
+              ยกเลิก
+            </button>
+            <button 
+              type="submit" 
+              disabled={isLoggingIn}
+              className="flex-1 p-3 rounded-xl font-bold bg-violet-600 text-white hover:bg-violet-700 transition-colors shadow-lg shadow-violet-600/20 disabled:opacity-50"
+            >
+              {isLoggingIn ? 'กำลังเชื่อมต่อ...' : 'เข้าสู่ระบบ'}
+            </button>
           </div>
         </form>
-
-        <div className="relative py-2">
-          <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-black/5"></div></div>
-          <div className="relative flex justify-center text-[10px] uppercase tracking-widest font-bold opacity-30"><span className="bg-white px-2">หรือแก้ปัญหาการบันทึก</span></div>
-        </div>
-
-        <div className="space-y-3">
-          {authDomainError && (
-            <div className="p-4 rounded-2xl bg-orange-50 border border-orange-100 space-y-3">
-              <p className="text-xs text-orange-700 font-bold">⚠️ วิธีแก้ปัญหาเชื่อมต่อ Google ไม่ได้:</p>
-              <ol className="text-[10px] text-orange-600 space-y-2 list-decimal pl-4">
-                <li>คลิก <a href="https://console.firebase.google.com/project/gen-lang-client-0442624553/authentication/settings" target="_blank" rel="noreferrer" className="underline font-bold">ลิงก์นี้เพื่อไปที่หน้าตั้งค่า</a></li>
-                <li>ดูที่หัวข้อ <b>"โดเมนที่ได้รับอนุญาต"</b> (Authorized domains)</li>
-                <li>กด <b>"เพิ่มโดเมน"</b> แล้วพิมพ์ <b>{window.location.hostname}</b> แล้วกดเพิ่ม</li>
-                <li>กลับมาที่นี่แล้วกด "เชื่อมต่อด้วย Google" อีกครั้ง</li>
-              </ol>
-            </div>
-          )}
-
-          {(!firebaseUser || firebaseUser.isAnonymous) && (
-            <button 
-              onClick={handleAnonymousLogin}
-              disabled={isLoggingIn}
-              className={`w-full flex items-center justify-center gap-3 p-3 rounded-xl border transition-colors text-sm font-bold bg-violet-50 border-violet-200 text-violet-700 hover:bg-violet-100`}
-            >
-              <ShieldCheck size={18} />
-              {firebaseUser?.isAnonymous ? 'เชื่อมต่อแบบด่วนแล้ว ✓ (พร้อมบันทึก)' : 'แก้ปัญหาบันทึกไม่ได้: คลิก "เชื่อมต่อด่วน"'}
-            </button>
-          )}
-
-          <div className="relative py-1">
-            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-black/5"></div></div>
-            <div className="relative flex justify-center text-[10px] uppercase tracking-widest font-bold opacity-30"><span className="bg-white px-2">หรือใช้ Google</span></div>
-          </div>
-
-          <button 
-            onClick={handleGoogleLogin}
-            disabled={isLoggingIn}
-            className={`w-full flex items-center justify-center gap-3 p-3 rounded-xl border transition-colors text-sm font-bold ${
-              firebaseUser && !firebaseUser.isAnonymous ? 'bg-green-50 border-green-200 text-green-700' : 'border-black/5 hover:bg-slate-50'
-            }`}
-          >
-            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
-            {firebaseUser && !firebaseUser.isAnonymous ? 'เชื่อมต่อ Google แล้ว ✓' : 'เชื่อมต่อด้วย Google'}
-          </button>
-
-          {!firebaseUser && (
-            <p className="text-[10px] text-center text-black/40 px-4">
-              *หากระบบขึ้น "เกิดข้อผิดพลาดในการบันทึก" ให้กดปุ่ม <b>"เชื่อมต่อด่วน"</b> ด้านบนสุดเพื่อแก้ปัญหาครับ
-            </p>
-          )}
-        </div>
       </motion.div>
     </div>
   );
@@ -869,7 +799,7 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
       try {
         const errInfo = JSON.parse(err.message);
         if (errInfo.error && (errInfo.error.includes("permission") || errInfo.error.includes("insufficient"))) {
-          msg = "สิทธิ์ไม่เพียงพอ: กรุณาไปที่เมนูแอดมินและกด 'เชื่อมต่อด่วน' เพื่อเปิดระบบบันทึก";
+          msg = "สิทธิ์ไม่เพียงพอ: กรุณาเข้าสู่ระบบแอดมินใหม่อีกครั้งเพื่อรีเซ็ตการเชื่อมต่อ";
         } else if (errInfo.error && errInfo.error.includes("Quota")) {
           msg = "โควตาฐานข้อมูลเต็ม (Spark Plan) กรุณารอรีเซ็ตในวันถัดไป";
         }
@@ -1273,7 +1203,7 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
       try {
         const errInfo = JSON.parse(err.message);
         if (errInfo.error && (errInfo.error.includes("permission") || errInfo.error.includes("insufficient"))) {
-          msg = "สิทธิ์ไม่เพียงพอ: กรุณาไปที่เมนูแอดมินและกด 'เชื่อมต่อด่วน' เพื่อเปิดระบบบันทึก";
+          msg = "สิทธิ์ไม่เพียงพอ: กรุณาเข้าสู่ระบบแอดมินใหม่อีกครั้งเพื่อรีเซ็ตการเชื่อมต่อ";
         } else if (errInfo.error && errInfo.error.includes("Quota")) {
           msg = "โควตาฐานข้อมูลเต็ม (Spark Plan) กรุณารอรีเซ็ตในวันถัดไป";
         }
@@ -1668,7 +1598,7 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
       try {
         const errInfo = JSON.parse(err.message);
         if (errInfo.error && (errInfo.error.includes("permission") || errInfo.error.includes("insufficient"))) {
-          msg = "สิทธิ์ไม่เพียงพอ: กรุณาไปที่เมนูแอดมินและกด 'เชื่อมต่อด่วน' เพื่อเปิดระบบบันทึก";
+          msg = "สิทธิ์ไม่เพียงพอ: กรุณาเข้าสู่ระบบแอดมินใหม่อีกครั้งเพื่อรีเซ็ตการเชื่อมต่อ";
         } else if (errInfo.error && errInfo.error.includes("Quota")) {
           msg = "โควตาฐานข้อมูลเต็ม (Spark Plan) กรุณารอรีเซ็ตในวันถัดไป";
         }
@@ -1964,7 +1894,7 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
       try {
         const errInfo = JSON.parse(err.message);
         if (errInfo.error && (errInfo.error.includes("permission") || errInfo.error.includes("insufficient"))) {
-          msg = "สิทธิ์ไม่เพียงพอ: กรุณาไปที่เมนูแอดมินและกด 'เชื่อมต่อด่วน' เพื่อเปิดระบบบันทึก";
+          msg = "สิทธิ์ไม่เพียงพอ: กรุณาเข้าสู่ระบบแอดมินใหม่อีกครั้งเพื่อรีเซ็ตการเชื่อมต่อ";
         } else if (errInfo.error && errInfo.error.includes("Quota")) {
           msg = "โควตาฐานข้อมูลเต็ม (Spark Plan) กรุณารอรีเซ็ตในวันถัดไป";
         }
