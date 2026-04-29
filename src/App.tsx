@@ -118,7 +118,9 @@ function LoginModal({ isOpen, onClose, onLogin, admins, firebaseUser, setToast }
       const errorCode = err?.code || err?.message || String(err);
       
       if (errorCode.includes('popup-blocked')) {
-        msg = 'ป๊อปอัปถูกบล็อก กรุณาอนุญาตให้เปิดป๊อปอัปสำหรับเว็บไซต์นี้ หรือเปิดแอปในหน้าต่างใหม่';
+        msg = 'ป๊อปอัปถูกบล็อก กรุณาอนุญาตให้เปิดป๊อปอัปสำหรับเว็บไซต์นี้ หรือใช้ "เชื่อมต่อด่วน" ด้านล่าง';
+      } else if (errorCode.includes('unauthorized-domain')) {
+        msg = 'โดเมนนี้ยังไม่ได้รับการอนุญาตในระบบ Google กรุณาใช้ปุ่ม "เชื่อมต่อด่วน" ด้านล่างแทนเพื่อบันทึกข้อมูล';
       } else if (errorCode.includes('operation-not-allowed')) {
         msg = 'ระบบยังไม่ได้เปิดใช้งาน Google Login ใน Firebase Console';
       } else if (errorCode.includes('cancelled-popup-request') || errorCode.includes('popup-closed-by-user')) {
@@ -239,6 +241,22 @@ function LoginModal({ isOpen, onClose, onLogin, admins, firebaseUser, setToast }
         </div>
 
         <div className="space-y-3">
+          {(!firebaseUser || firebaseUser.isAnonymous) && (
+            <button 
+              onClick={handleAnonymousLogin}
+              disabled={isLoggingIn}
+              className={`w-full flex items-center justify-center gap-3 p-3 rounded-xl border transition-colors text-sm font-bold bg-violet-50 border-violet-200 text-violet-700 hover:bg-violet-100`}
+            >
+              <ShieldCheck size={18} />
+              {firebaseUser?.isAnonymous ? 'เชื่อมต่อแบบด่วนแล้ว ✓ (พร้อมบันทึก)' : 'แก้ปัญหาบันทึกไม่ได้: คลิก "เชื่อมต่อด่วน"'}
+            </button>
+          )}
+
+          <div className="relative py-1">
+            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-black/5"></div></div>
+            <div className="relative flex justify-center text-[10px] uppercase tracking-widest font-bold opacity-30"><span className="bg-white px-2">หรือใช้ Google</span></div>
+          </div>
+
           <button 
             onClick={handleGoogleLogin}
             disabled={isLoggingIn}
@@ -247,29 +265,14 @@ function LoginModal({ isOpen, onClose, onLogin, admins, firebaseUser, setToast }
             }`}
           >
             <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
-            {firebaseUser && !firebaseUser.isAnonymous ? 'เชื่อมต่อ Google แล้ว ✓' : 'เชื่อมต่อด้วย Google (แนะนำ)'}
+            {firebaseUser && !firebaseUser.isAnonymous ? 'เชื่อมต่อ Google แล้ว ✓' : 'เชื่อมต่อด้วย Google'}
           </button>
 
-          {(!firebaseUser || firebaseUser.isAnonymous) && (
-            <a 
-              href={window.location.href} 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="block w-full text-center p-3 rounded-xl border border-dashed border-violet-200 text-violet-600 hover:bg-violet-50 transition-colors text-xs font-bold"
-            >
-              เปิดแอปในหน้าต่างใหม่ (หากเชื่อมต่อไม่ได้)
-            </a>
+          {!firebaseUser && (
+            <p className="text-[10px] text-center text-black/40 px-4">
+              *หากระบบขึ้น "เกิดข้อผิดพลาดในการบันทึก" ให้กดปุ่ม <b>"เชื่อมต่อด่วน"</b> ด้านบนสุดเพื่อแก้ปัญหาครับ
+            </p>
           )}
-
-          <button 
-            onClick={handleAnonymousLogin}
-            disabled={isLoggingIn}
-            className={`w-full p-3 rounded-xl text-xs transition-opacity ${
-              firebaseUser?.isAnonymous ? 'text-green-600 font-bold' : 'opacity-50 hover:opacity-100'
-            }`}
-          >
-            {firebaseUser?.isAnonymous ? 'เชื่อมต่อแบบไม่ระบุตัวตนแล้ว' : 'ลองเชื่อมต่อแบบไม่ระบุตัวตนอีกครั้ง'}
-          </button>
         </div>
       </motion.div>
     </div>
@@ -851,7 +854,7 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
       try {
         const errInfo = JSON.parse(err.message);
         if (errInfo.error && (errInfo.error.includes("permission") || errInfo.error.includes("insufficient"))) {
-          msg = "สิทธิ์ไม่เพียงพอ: กรุณาไปที่เมนูแอดมินและเลือก 'เชื่อมต่อด้วย Google'";
+          msg = "สิทธิ์ไม่เพียงพอ: กรุณาไปที่เมนูแอดมินและกด 'เชื่อมต่อด่วน' เพื่อเปิดระบบบันทึก";
         } else if (errInfo.error && errInfo.error.includes("Quota")) {
           msg = "โควตาฐานข้อมูลเต็ม (Spark Plan) กรุณารอรีเซ็ตในวันถัดไป";
         }
@@ -1255,7 +1258,7 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
       try {
         const errInfo = JSON.parse(err.message);
         if (errInfo.error && (errInfo.error.includes("permission") || errInfo.error.includes("insufficient"))) {
-          msg = "สิทธิ์ไม่เพียงพอ: กรุณาไปที่เมนูแอดมินและเลือก 'เชื่อมต่อด้วย Google'";
+          msg = "สิทธิ์ไม่เพียงพอ: กรุณาไปที่เมนูแอดมินและกด 'เชื่อมต่อด่วน' เพื่อเปิดระบบบันทึก";
         } else if (errInfo.error && errInfo.error.includes("Quota")) {
           msg = "โควตาฐานข้อมูลเต็ม (Spark Plan) กรุณารอรีเซ็ตในวันถัดไป";
         }
@@ -1650,7 +1653,7 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
       try {
         const errInfo = JSON.parse(err.message);
         if (errInfo.error && (errInfo.error.includes("permission") || errInfo.error.includes("insufficient"))) {
-          msg = "สิทธิ์ไม่เพียงพอ: กรุณาไปที่เมนูแอดมินและเลือก 'เชื่อมต่อด้วย Google'";
+          msg = "สิทธิ์ไม่เพียงพอ: กรุณาไปที่เมนูแอดมินและกด 'เชื่อมต่อด่วน' เพื่อเปิดระบบบันทึก";
         } else if (errInfo.error && errInfo.error.includes("Quota")) {
           msg = "โควตาฐานข้อมูลเต็ม (Spark Plan) กรุณารอรีเซ็ตในวันถัดไป";
         }
@@ -1946,7 +1949,7 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
       try {
         const errInfo = JSON.parse(err.message);
         if (errInfo.error && (errInfo.error.includes("permission") || errInfo.error.includes("insufficient"))) {
-          msg = "สิทธิ์ไม่เพียงพอ: กรุณาไปที่เมนูแอดมินและเลือก 'เชื่อมต่อด้วย Google'";
+          msg = "สิทธิ์ไม่เพียงพอ: กรุณาไปที่เมนูแอดมินและกด 'เชื่อมต่อด่วน' เพื่อเปิดระบบบันทึก";
         } else if (errInfo.error && errInfo.error.includes("Quota")) {
           msg = "โควตาฐานข้อมูลเต็ม (Spark Plan) กรุณารอรีเซ็ตในวันถัดไป";
         }
