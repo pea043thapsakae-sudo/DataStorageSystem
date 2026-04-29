@@ -156,8 +156,8 @@ function LoginModal({ isOpen, onClose, onLogin, admins, firebaseUser, setToast }
           <div className="w-16 h-16 bg-violet-100 text-violet-600 rounded-2xl flex items-center justify-center mx-auto">
             <Lock size={32} />
           </div>
-          <h3 className="text-2xl font-bold">เข้าสู่ระบบแอดมิน</h3>
-          <p className="text-sm opacity-50">กรุณาเข้าสู่ระบบเพื่อจัดการข้อมูล</p>
+          <h3 className="text-2xl font-bold">เข้าสู่ระบบแอดมิน (v2)</h3>
+          <p className="text-sm opacity-50">กรุณาเข้าสู่ระบบเพื่อจัดการข้อมูล (หากเข้าไม่ได้กรุณากด Refresh หน้าเว็บบราวเซอร์)</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1">
