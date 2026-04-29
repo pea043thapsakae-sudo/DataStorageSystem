@@ -1174,11 +1174,11 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
     
     // Safety timeout
     const timeout = setTimeout(() => {
-      if (isUploading) {
-        setIsUploading(false);
-        setToast({ message: "การอัปโหลดใช้เวลานานเกินไป กรุณาตรวจสอบอินเทอร์เน็ต", type: 'error' });
-      }
-    }, 30000); // Longer for uploads
+      // We check a ref or just rely on the fact that if it finishes, we'll clear it.
+      // If it takes too long, we notify the user but we don't necessarily 'stop' the execution
+      // unless we use an AbortController.
+      setToast({ message: "การบันทึกอาจใช้เวลานานกว่าปกติเนื่องจากขนาดรูปภาพหรือจำนวนพนักงาน กรุณารอสักครู่...", type: 'info' });
+    }, 15000); 
 
     try {
       if (!auth.currentUser) {
@@ -1337,7 +1337,7 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-bold uppercase tracking-widest opacity-50">รายละเอียดกิจกรรม</label>
+                <label className="text-xs font-bold uppercase tracking-widest opacity-50">ชื่อกิจกรรม</label>
                 <input 
                   type="text"
                   placeholder="ระบุชื่อกิจกรรม..."
@@ -1622,10 +1622,7 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
     
     // Safety timeout
     const timeout = setTimeout(() => {
-      if (isSaving) {
-        setIsSaving(false);
-        setToast({ message: "การบันทึกใช้เวลานานเกินไป กรุณาตรวจสอบอินเทอร์เน็ต", type: 'error' });
-      }
+      setToast({ message: "การบันทึกอาจใช้เวลานานกว่าปกติ กรุณารอสักครู่...", type: 'info' });
     }, 15000);
 
     try {
@@ -1727,17 +1724,7 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
       {isAdmin && (
         <div className="bg-white p-8 rounded-3xl shadow-sm border border-black/5">
           <form onSubmit={handleSubmit} className="space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="space-y-2">
-                <label className="text-xs font-bold uppercase tracking-widest opacity-50">กิจกรรม</label>
-                <select 
-                  className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500"
-                  value={headerData.type}
-                  onChange={e => setHeaderData({ ...headerData, type: e.target.value as any })}
-                >
-                  {ACTIVITY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <label className="text-xs font-bold uppercase tracking-widest opacity-50">วันที่</label>
                 <input 
@@ -1748,10 +1735,10 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-bold uppercase tracking-widest opacity-50">รายละเอียดเพิ่มเติม (ถ้ามี)</label>
+                <label className="text-xs font-bold uppercase tracking-widest opacity-50">ชื่อกิจกรรม</label>
                 <input 
                   type="text"
-                  placeholder="ระบุรายละเอียด..."
+                  placeholder="ระบุชื่อกิจกรรม..."
                   className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500"
                   value={headerData.title}
                   onChange={e => setHeaderData({ ...headerData, title: e.target.value })}
@@ -1859,11 +1846,11 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
       <div className="space-y-4">
         <h3 className="text-xl font-bold">ประวัติกิจกรรมล่าสุด</h3>
         <div className="grid gap-4">
-          {records.length === 0 ? (
+          {records.filter(r => r.type === 'กิจกรรม').length === 0 ? (
             <div className="p-10 text-center opacity-30 italic">ยังไม่มีข้อมูลกิจกรรม</div>
           ) : (
             Object.entries(
-              records.reduce((acc, r) => {
+              records.filter(r => r.type === 'กิจกรรม').reduce((acc, r) => {
                 const key = `${r.date}_${r.type}_${r.title}`;
                 if (!acc[key]) acc[key] = [];
                 acc[key].push(r);
@@ -1960,10 +1947,7 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
     
     // Safety timeout
     const timeout = setTimeout(() => {
-      if (isSaving) {
-        setIsSaving(false);
-        setToast({ message: "การบันทึกใช้เวลานานเกินไป กรุณาตรวจสอบอินเทอร์เน็ต", type: 'error' });
-      }
+      setToast({ message: "การบันทึกอาจใช้เวลานานกว่าปกติ กรุณารอสักครู่...", type: 'info' });
     }, 15000);
 
     try {
