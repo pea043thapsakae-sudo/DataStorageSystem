@@ -102,12 +102,14 @@ function LoginModal({ isOpen, onClose, onLogin, admins, firebaseUser, setToast }
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [authDomainError, setAuthDomainError] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   if (!isOpen) return null;
 
   const handleGoogleLogin = async () => {
     setIsLoggingIn(true);
+    setAuthDomainError(false);
     try {
       await loginWithGoogle();
       setToast({ message: 'เชื่อมต่อระบบฐานข้อมูลด้วย Google สำเร็จ', type: 'success' });
@@ -120,7 +122,8 @@ function LoginModal({ isOpen, onClose, onLogin, admins, firebaseUser, setToast }
       if (errorCode.includes('popup-blocked')) {
         msg = 'ป๊อปอัปถูกบล็อก กรุณาอนุญาตให้เปิดป๊อปอัปสำหรับเว็บไซต์นี้ หรือใช้ "เชื่อมต่อด่วน" ด้านล่าง';
       } else if (errorCode.includes('unauthorized-domain')) {
-        msg = 'โดเมนนี้ยังไม่ได้รับการอนุญาตในระบบ Google กรุณาใช้ปุ่ม "เชื่อมต่อด่วน" ด้านล่างแทนเพื่อบันทึกข้อมูล';
+        msg = 'ยังไม่ได้อนุญาตโดเมนใน Firebase Console';
+        setAuthDomainError(true);
       } else if (errorCode.includes('operation-not-allowed')) {
         msg = 'ระบบยังไม่ได้เปิดใช้งาน Google Login ใน Firebase Console';
       } else if (errorCode.includes('cancelled-popup-request') || errorCode.includes('popup-closed-by-user')) {
@@ -241,6 +244,18 @@ function LoginModal({ isOpen, onClose, onLogin, admins, firebaseUser, setToast }
         </div>
 
         <div className="space-y-3">
+          {authDomainError && (
+            <div className="p-4 rounded-2xl bg-orange-50 border border-orange-100 space-y-3">
+              <p className="text-xs text-orange-700 font-bold">⚠️ วิธีแก้ปัญหาเชื่อมต่อ Google ไม่ได้:</p>
+              <ol className="text-[10px] text-orange-600 space-y-2 list-decimal pl-4">
+                <li>คลิก <a href="https://console.firebase.google.com/project/gen-lang-client-0442624553/authentication/settings" target="_blank" rel="noreferrer" className="underline font-bold">ลิงก์นี้เพื่อไปที่หน้าตั้งค่า</a></li>
+                <li>ดูที่หัวข้อ <b>"โดเมนที่ได้รับอนุญาต"</b> (Authorized domains)</li>
+                <li>กด <b>"เพิ่มโดเมน"</b> แล้วพิมพ์ <b>{window.location.hostname}</b> แล้วกดเพิ่ม</li>
+                <li>กลับมาที่นี่แล้วกด "เชื่อมต่อด้วย Google" อีกครั้ง</li>
+              </ol>
+            </div>
+          )}
+
           {(!firebaseUser || firebaseUser.isAnonymous) && (
             <button 
               onClick={handleAnonymousLogin}
