@@ -25,10 +25,11 @@ export interface ActivityRecord {
   date: string;
   type: 'กิจกรรม' | 'กิจกรรมภายนอก';
   title: string;
-  status: 'เข้าร่วม' | 'ไม่เข้าร่วม' | 'อื่นๆ';
+  status: 'เข้าร่วม' | 'ไม่เข้าร่วม' | 'อื่นๆ' | 'สลับคู่';
   reason?: string;
   imageUrl?: string;
   imageUrls?: string[];
+  swapWithId?: number;
 }
 
 export interface LeaveRecord {

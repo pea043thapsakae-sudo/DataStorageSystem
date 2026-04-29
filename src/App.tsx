@@ -23,7 +23,9 @@ import {
   Edit2,
   Eye,
   EyeOff,
-  ShieldCheck as ShieldCheckIcon
+  ShieldCheck as ShieldCheckIcon,
+  RefreshCw,
+  Search
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { EMPLOYEES, INNOVATION_TYPES, KM_SUBTYPES, ACTIVITY_TYPES, LEAVE_TYPES, LEAVE_DURATIONS } from './constants';
@@ -129,16 +131,19 @@ function LoginModal({ isOpen, onClose, onLogin, admins, firebaseUser, setToast }
     }
     
     if (admin) {
-      // Try background connection but don't block login if it fails
-      loginAnonymously().catch(err => {
-        console.warn("Background auth failed, data might not save:", err);
-      });
-      
-      onLogin(admin);
-      setUsername('');
-      setPassword('');
-      setError('');
-      onClose();
+      try {
+        setIsLoggingIn(true);
+        // Required for Firestore to work with standard secure rules
+        await loginAnonymously();
+        onLogin(admin);
+        setUsername('');
+        setPassword('');
+        setError('');
+        onClose();
+      } catch (err: any) {
+        console.error("Auth error:", err);
+        setError('ไม่สามารถเปิดระบบบันทึกข้อมูลได้ (Auth Error). กรุณาเปิด "ไม่ระบุตัวตน (Anonymous)" ใน Firebase Console > Authentication > Sign-in method');
+      }
     } else {
       setError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง');
     }
@@ -350,7 +355,18 @@ export default function App() {
     const newId = state.employees.length > 0 ? Math.max(...state.employees.map(e => e.id)) + 1 : 1;
     const newEmp = { ...emp, id: newId };
     try {
-      await setDoc(doc(db, 'employees', newId.toString()), newEmp);
+      const snap = await getDocs(collection(db, 'employees'));
+      if (snap.empty) {
+        // Bootstrap the default list plus the new employee
+        const batch = writeBatch(db);
+        EMPLOYEES.forEach(e => {
+          batch.set(doc(db, 'employees', e.id.toString()), e);
+        });
+        batch.set(doc(db, 'employees', newId.toString()), newEmp);
+        await batch.commit();
+      } else {
+        await setDoc(doc(db, 'employees', newId.toString()), newEmp);
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `employees/${newId}`);
     }
@@ -358,7 +374,18 @@ export default function App() {
 
   const updateEmployee = async (id: number, emp: { name: string, position: string, group?: 'A' | 'B' | 'Both' }) => {
     try {
-      await setDoc(doc(db, 'employees', id.toString()), { ...emp, id });
+      const snap = await getDocs(collection(db, 'employees'));
+      if (snap.empty) {
+        // Bootstrap the default list with the updated employee
+        const batch = writeBatch(db);
+        EMPLOYEES.forEach(e => {
+          const data = e.id === id ? { ...emp, id } : e;
+          batch.set(doc(db, 'employees', e.id.toString()), data);
+        });
+        await batch.commit();
+      } else {
+        await setDoc(doc(db, 'employees', id.toString()), { ...emp, id });
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `employees/${id}`);
     }
@@ -536,7 +563,7 @@ export default function App() {
               active={activeTab === 'activity'} 
               onClick={() => setActiveTab('activity')}
               icon={<ShieldCheck size={20} />}
-              label="กิจกรรม"
+              label="กิจกรรมภายใน"
             />
             <NavButton 
               active={activeTab === 'external'} 
@@ -711,6 +738,8 @@ function NavButton({ active, onClick, icon, label }: { active: boolean, onClick:
 function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, setToast }: { employees: Employee[], records: InnovationRecord[], onAdd: (r: any) => Promise<void>, onUpdate: (id: string, r: any) => Promise<void>, onDelete: (id: string) => Promise<void>, isAdmin: boolean, setToast: (t: any) => void }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [filterType, setFilterType] = useState<'ทั้งหมด' | typeof INNOVATION_TYPES[number]>('ทั้งหมด');
+  
   const [formData, setFormData] = useState<{
     employeeId: number;
     participants: number[];
@@ -755,14 +784,6 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
     }, 15000);
 
     try {
-      if (!auth.currentUser) {
-        throw new Error(JSON.stringify({ 
-          error: "Missing or insufficient permissions: Not logged in with Google",
-          operationType: 'write',
-          path: 'innovationRecords'
-        }));
-      }
-
       const dataToSave = { ...formData };
       if (dataToSave.type !== 'KM') {
         delete dataToSave.kmSubtype;
@@ -838,7 +859,6 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
 
       <header>
         <h2 className="text-3xl font-bold serif">{editingId ? 'แก้ไขข้อมูลนวัตกรรม / KM/ความคิดสร้างสรรค์' : 'การทำนวัตกรรม / KM/ความคิดสร้างสรรค์'}</h2>
-        <p className="text-[#1A1A1A]/50">บันทึกความคิดสร้างสรรค์ OPL, OPK และการจัดการความรู้</p>
       </header>
 
       {isAdmin && (
@@ -981,12 +1001,35 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
       )}
 
       <div className="space-y-4">
-        <h3 className="text-xl font-bold">ประวัติการบันทึก</h3>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <Search size={20} className="text-violet-600" />
+            <h3 className="text-xl font-bold">ประวัติการบันทึก</h3>
+          </div>
+          <div className="flex bg-white border border-black/5 rounded-xl p-1 shrink-0">
+            {['ทั้งหมด', ...INNOVATION_TYPES].map((type) => (
+              <button
+                key={type}
+                onClick={() => setFilterType(type as any)}
+                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  filterType === type ? 'bg-violet-600 text-white shadow-sm' : 'hover:bg-black/5 opacity-50'
+                }`}
+              >
+                {type}
+              </button>
+            ))}
+          </div>
+        </div>
+        
         <div className="grid gap-4">
           {records.length === 0 ? (
             <div className="p-10 text-center opacity-30 italic">ยังไม่มีข้อมูลบันทึก</div>
           ) : (
-            records.slice().reverse().map(record => {
+            records
+              .filter(r => filterType === 'ทั้งหมด' || r.type === filterType)
+              .sort((a, b) => a.type.localeCompare(b.type)) // Sort by type as requested
+              .slice().reverse() // Show newest first within type groups or total
+              .map(record => {
               const emp = employees.find(e => e.id === record.employeeId);
               return (
                 <div key={record.id} className="bg-white p-6 rounded-2xl border border-black/5 flex items-start justify-between group">
@@ -1089,7 +1132,7 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
     return employees.filter(emp => emp.group === activeGroup || emp.group === 'Both');
   }, [activeGroup, employees]);
 
-  const [attendance, setAttendance] = useState<{ [key: number]: { status: 'เข้าร่วม' | 'ไม่เข้าร่วม' | 'อื่นๆ', reason: string } }>(
+  const [attendance, setAttendance] = useState<{ [key: number]: { status: 'เข้าร่วม' | 'ไม่เข้าร่วม' | 'อื่นๆ' | 'สลับคู่', reason: string, swapWithId?: number } }>(
     employees.reduce((acc, emp) => ({ ...acc, [emp.id]: { status: 'เข้าร่วม', reason: '' } }), {})
   );
 
@@ -1173,7 +1216,8 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
         status: attendance[emp.id]?.status || 'เข้าร่วม',
         reason: attendance[emp.id]?.reason || '',
         imageUrl: finalImageUrls[0] || '', // Keep for backward compatibility
-        imageUrls: finalImageUrls
+        imageUrls: finalImageUrls,
+        swapWithId: attendance[emp.id]?.status === 'สลับคู่' ? attendance[emp.id]?.swapWithId || null : null
       }));
 
       if (editingGroup) {
@@ -1235,16 +1279,21 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
 
     const newAttendance = { ...attendance };
     group.forEach(r => {
-      newAttendance[r.employeeId] = { status: r.status, reason: r.reason || '' };
+      newAttendance[r.employeeId] = { status: r.status, reason: r.reason || '', swapWithId: r.swapWithId };
     });
     setAttendance(newAttendance);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const updateAttendance = (empId: number, status: 'เข้าร่วม' | 'ไม่เข้าร่วม' | 'อื่นๆ', reason?: string) => {
+  const updateAttendance = (empId: number, status: 'เข้าร่วม' | 'ไม่เข้าร่วม' | 'อื่นๆ' | 'สลับคู่', reason?: string, swapWithId?: number) => {
     setAttendance(prev => ({
       ...prev,
-      [empId]: { ...prev[empId], status, reason: reason !== undefined ? reason : prev[empId].reason }
+      [empId]: { 
+        ...prev[empId], 
+        status, 
+        reason: reason !== undefined ? reason : prev[empId].reason,
+        swapWithId: swapWithId !== undefined ? swapWithId : prev[empId].swapWithId
+      }
     }));
   };
 
@@ -1361,8 +1410,8 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
                         <div className="text-[10px] opacity-50 uppercase">{emp.position}</div>
                       </td>
                       <td className="p-4">
-                        <div className="flex gap-2">
-                          {['เข้าร่วม', 'ไม่เข้าร่วม', 'อื่นๆ'].map((status) => (
+                        <div className="flex flex-wrap gap-2">
+                          {['เข้าร่วม', 'ไม่เข้าร่วม', 'อื่นๆ', 'สลับคู่'].map((status) => (
                             <button
                               key={status}
                               type="button"
@@ -1379,15 +1428,29 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
                         </div>
                       </td>
                       <td className="p-4">
-                        {attendance[emp.id]?.status === 'อื่นๆ' && (
-                          <input 
-                            type="text"
-                            placeholder="ระบุเหตุผล..."
-                            className="w-full p-2 text-xs rounded-lg bg-slate-50 border-none focus:ring-1 focus:ring-violet-500"
-                            value={attendance[emp.id]?.reason || ''}
-                            onChange={e => updateAttendance(emp.id, 'อื่นๆ', e.target.value)}
-                          />
-                        )}
+                        <div className="space-y-2">
+                          {attendance[emp.id]?.status === 'สลับคู่' && (
+                            <select
+                              className="w-full p-2 text-xs rounded-lg bg-slate-50 border-none focus:ring-1 focus:ring-violet-500"
+                              value={attendance[emp.id]?.swapWithId || ''}
+                              onChange={e => updateAttendance(emp.id, 'สลับคู่', undefined, Number(e.target.value))}
+                            >
+                              <option value="">เลือกพนักงานที่สลับคู่...</option>
+                              {employees.filter(e => e.id !== emp.id).map(e => (
+                                <option key={e.id} value={e.id}>{e.name} ({e.position})</option>
+                              ))}
+                            </select>
+                          )}
+                          {attendance[emp.id]?.status === 'อื่นๆ' && (
+                            <input 
+                              type="text"
+                              placeholder="ระบุเหตุผล..."
+                              className="w-full p-2 text-xs rounded-lg bg-slate-50 border-none focus:ring-1 focus:ring-violet-500"
+                              value={attendance[emp.id]?.reason || ''}
+                              onChange={e => updateAttendance(emp.id, 'อื่นๆ', e.target.value)}
+                            />
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1465,6 +1528,7 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
                     </div>
                     <div className="flex gap-2 text-xs font-bold">
                       <span className="px-2 py-1 bg-green-100 text-green-700 rounded-lg">เข้าร่วม: {group.filter(r => r.status === 'เข้าร่วม').length}</span>
+                      <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-lg">สลับคู่: {group.filter(r => r.status === 'สลับคู่').length}</span>
                       <span className="px-2 py-1 bg-red-100 text-red-700 rounded-lg">ไม่เข้าร่วม: {group.filter(r => r.status === 'ไม่เข้าร่วม').length}</span>
                     </div>
                     {isAdmin && (
@@ -1490,15 +1554,29 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
                   {group.map(r => {
                     const emp = employees.find(e => e.id === r.employeeId);
+                    const swapEmp = r.swapWithId ? employees.find(e => e.id === r.swapWithId) : null;
                     return (
-                      <div key={r.id} className={`p-2 rounded-lg text-[10px] flex items-center justify-between ${
+                      <div key={r.id} className={`p-2 rounded-lg text-[10px] flex flex-col gap-1 ${
                         r.status === 'เข้าร่วม' ? 'bg-green-50 text-green-800' : 
-                        r.status === 'ไม่เข้าร่วม' ? 'bg-red-50 text-red-800' : 'bg-gray-100 text-gray-800'
+                        r.status === 'ไม่เข้าร่วม' ? 'bg-red-50 text-red-800' : 
+                        r.status === 'สลับคู่' ? 'bg-blue-50 text-blue-800' : 'bg-gray-100 text-gray-800'
                       }`}>
-                        <span className="truncate">{emp?.name}</span>
-                        <span className="font-bold shrink-0 ml-1">
-                          {r.status === 'เข้าร่วม' ? '✓' : r.status === 'ไม่เข้าร่วม' ? '✗' : '?'}
-                        </span>
+                        <div className="flex items-center justify-between">
+                          <span className="truncate font-bold">{emp?.name}</span>
+                          <span className="shrink-0 ml-1">
+                            {r.status === 'เข้าร่วม' ? '✓' : r.status === 'ไม่เข้าร่วม' ? '✗' : r.status === 'สลับคู่' ? '⇄' : '?'}
+                          </span>
+                        </div>
+                        {r.status === 'สลับคู่' && swapEmp && (
+                          <div className="text-[8px] opacity-70 italic border-t border-blue-200 mt-1 pt-1">
+                            คู่สลับ: {swapEmp.name}
+                          </div>
+                        )}
+                        {r.status === 'อื่นๆ' && r.reason && (
+                          <div className="text-[8px] opacity-70 italic border-t border-gray-200 mt-1 pt-1 truncate">
+                            {r.reason}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -1523,7 +1601,7 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
   
   const [isSaving, setIsSaving] = useState(false);
   
-  const [attendance, setAttendance] = useState<{ [key: number]: { status: 'เข้าร่วม' | 'ไม่เข้าร่วม' | 'อื่นๆ', reason: string } }>(
+  const [attendance, setAttendance] = useState<{ [key: number]: { status: 'เข้าร่วม' | 'ไม่เข้าร่วม' | 'อื่นๆ' | 'สลับคู่', reason: string, swapWithId?: number } }>(
     employees.reduce((acc, emp) => ({ ...acc, [emp.id]: { status: 'เข้าร่วม', reason: '' } }), {})
   );
 
@@ -1570,7 +1648,8 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
         title: headerData.title || headerData.type,
         date: headerData.date,
         status: attendance[emp.id]?.status || 'เข้าร่วม',
-        reason: attendance[emp.id]?.reason || ''
+        reason: attendance[emp.id]?.reason || '',
+        swapWithId: attendance[emp.id]?.status === 'สลับคู่' ? attendance[emp.id]?.swapWithId || null : null
       }));
 
       if (editingGroup) {
@@ -1618,16 +1697,21 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
     
     const newAttendance = { ...attendance };
     group.forEach(r => {
-      newAttendance[r.employeeId] = { status: r.status, reason: r.reason || '' };
+      newAttendance[r.employeeId] = { status: r.status, reason: r.reason || '', swapWithId: r.swapWithId };
     });
     setAttendance(newAttendance);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const updateAttendance = (empId: number, status: 'เข้าร่วม' | 'ไม่เข้าร่วม' | 'อื่นๆ', reason?: string) => {
+  const updateAttendance = (empId: number, status: 'เข้าร่วม' | 'ไม่เข้าร่วม' | 'อื่นๆ' | 'สลับคู่', reason?: string, swapWithId?: number) => {
     setAttendance(prev => ({
       ...prev,
-      [empId]: { ...prev[empId], status, reason: reason !== undefined ? reason : prev[empId].reason }
+      [empId]: { 
+        ...prev[empId], 
+        status, 
+        reason: reason !== undefined ? reason : prev[empId].reason,
+        swapWithId: swapWithId !== undefined ? swapWithId : prev[empId].swapWithId
+      }
     }));
   };
 
@@ -1642,8 +1726,7 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
       />
 
       <header>
-        <h2 className="text-3xl font-bold serif">{editingGroup ? 'แก้ไขกิจกรรม' : 'กิจกรรม'}</h2>
-        <p className="text-[#1A1A1A]/50">บันทึกกิจกรรม Safety Talk & KYT, 5ส, Big Cleaning และกิจกรรมองค์กร</p>
+        <h2 className="text-3xl font-bold serif">{editingGroup ? 'แก้ไขกิจกรรมภายใน' : 'กิจกรรมภายใน'}</h2>
       </header>
 
       {isAdmin && (
@@ -1698,8 +1781,8 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
                         <div className="text-[10px] opacity-50 uppercase">{emp.position}</div>
                       </td>
                       <td className="p-4">
-                        <div className="flex gap-2">
-                          {['เข้าร่วม', 'ไม่เข้าร่วม', 'อื่นๆ'].map((status) => (
+                        <div className="flex flex-wrap gap-2">
+                          {['เข้าร่วม', 'ไม่เข้าร่วม', 'อื่นๆ', 'สลับคู่'].map((status) => (
                             <button
                               key={status}
                               type="button"
@@ -1716,15 +1799,29 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
                         </div>
                       </td>
                       <td className="p-4">
-                        {attendance[emp.id]?.status === 'อื่นๆ' && (
-                          <input 
-                            type="text"
-                            placeholder="ระบุเหตุผล..."
-                            className="w-full p-2 text-xs rounded-lg bg-slate-50 border-none focus:ring-1 focus:ring-violet-500"
-                            value={attendance[emp.id]?.reason || ''}
-                            onChange={e => updateAttendance(emp.id, 'อื่นๆ', e.target.value)}
-                          />
-                        )}
+                        <div className="space-y-2">
+                          {attendance[emp.id]?.status === 'สลับคู่' && (
+                            <select
+                              className="w-full p-2 text-xs rounded-lg bg-slate-50 border-none focus:ring-1 focus:ring-violet-500"
+                              value={attendance[emp.id]?.swapWithId || ''}
+                              onChange={e => updateAttendance(emp.id, 'สลับคู่', undefined, Number(e.target.value))}
+                            >
+                              <option value="">เลือกพนักงานที่สลับคู่...</option>
+                              {employees.filter(e => e.id !== emp.id).map(e => (
+                                <option key={e.id} value={e.id}>{e.name} ({e.position})</option>
+                              ))}
+                            </select>
+                          )}
+                          {attendance[emp.id]?.status === 'อื่นๆ' && (
+                            <input 
+                              type="text"
+                              placeholder="ระบุเหตุผล..."
+                              className="w-full p-2 text-xs rounded-lg bg-slate-50 border-none focus:ring-1 focus:ring-violet-500"
+                              value={attendance[emp.id]?.reason || ''}
+                              onChange={e => updateAttendance(emp.id, 'อื่นๆ', e.target.value)}
+                            />
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1790,6 +1887,7 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
                   <div className="flex items-center gap-4">
                     <div className="flex gap-2 text-xs font-bold">
                       <span className="text-green-600">✓ {group.filter(r => r.status === 'เข้าร่วม').length}</span>
+                      <span className="text-blue-600">⇄ {group.filter(r => r.status === 'สลับคู่').length}</span>
                       <span className="text-red-600">✗ {group.filter(r => r.status === 'ไม่เข้าร่วม').length}</span>
                     </div>
                     {isAdmin && (
@@ -1803,15 +1901,29 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                   {group.map(r => {
                     const emp = employees.find(e => e.id === r.employeeId);
+                    const swapEmp = r.swapWithId ? employees.find(e => e.id === r.swapWithId) : null;
                     return (
-                      <div key={r.id} className={`p-2 rounded-lg text-[10px] flex items-center justify-between ${
+                      <div key={r.id} className={`p-2 rounded-lg text-[10px] flex flex-col gap-1 ${
                         r.status === 'เข้าร่วม' ? 'bg-green-50 text-green-800' : 
-                        r.status === 'ไม่เข้าร่วม' ? 'bg-red-50 text-red-800' : 'bg-gray-100 text-gray-800'
+                        r.status === 'ไม่เข้าร่วม' ? 'bg-red-50 text-red-800' : 
+                        r.status === 'สลับคู่' ? 'bg-blue-50 text-blue-800' : 'bg-gray-100 text-gray-800'
                       }`}>
-                        <span className="truncate">{emp?.name}</span>
-                        <span className="font-bold shrink-0 ml-1">
-                          {r.status === 'เข้าร่วม' ? '✓' : r.status === 'ไม่เข้าร่วม' ? '✗' : '?'}
-                        </span>
+                        <div className="flex items-center justify-between">
+                          <span className="truncate font-bold">{emp?.name}</span>
+                          <span className="shrink-0 ml-1">
+                            {r.status === 'เข้าร่วม' ? '✓' : r.status === 'ไม่เข้าร่วม' ? '✗' : r.status === 'สลับคู่' ? '⇄' : '?'}
+                          </span>
+                        </div>
+                        {r.status === 'สลับคู่' && swapEmp && (
+                          <div className="text-[8px] opacity-70 italic border-t border-blue-200 mt-1 pt-1">
+                            คู่สลับ: {swapEmp.name}
+                          </div>
+                        )}
+                        {r.status === 'อื่นๆ' && r.reason && (
+                          <div className="text-[8px] opacity-70 italic border-t border-gray-200 mt-1 pt-1 truncate">
+                            {r.reason}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -1931,7 +2043,6 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
 
       <header>
         <h2 className="text-3xl font-bold serif">{editingId ? 'แก้ไขข้อมูลวันหยุดวันลา' : 'วันหยุดวันลา'}</h2>
-        <p className="text-[#1A1A1A]/50">จัดการข้อมูลการลาพักร้อน ลาป่วย ลากิจ และอื่นๆ</p>
       </header>
 
       {isAdmin && (
@@ -2093,7 +2204,6 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
 function ReportSection({ state }: { state: AppState }) {
   const [filterType, setFilterType] = useState<'day' | 'month' | 'year' | 'all'>('all');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [selectedCategory, setSelectedCategory] = useState<'all' | 'innovation' | 'activity' | 'leave'>('all');
 
   const filteredData = useMemo(() => {
     const d = new Date(selectedDate);
@@ -2125,20 +2235,33 @@ function ReportSection({ state }: { state: AppState }) {
       const innovation = records.filter(r => r.type === 'นวัตกรรม').length;
       const kmOpl = records.filter(r => r.type === 'KM' && r.kmSubtype === 'OPL').length;
       const kmOpk = records.filter(r => r.type === 'KM' && r.kmSubtype === 'OPK').length;
-      return { ...emp, innovation, kmOpl, kmOpk, total: records.length };
+      const creativity = records.filter(r => r.type === 'ความคิดสร้างสรรค์').length;
+      return { ...emp, innovation, kmOpl, kmOpk, creativity, total: records.length };
     });
   }, [filteredData.innovations, state.employees]);
 
   const activitySummary = useMemo(() => {
-    const uniqueActivities = Array.from(new Set(filteredData.activities.map(r => `${r.date}|${r.type}|${r.title}`)));
-    const totalUniqueCount = uniqueActivities.length;
+    const internalActivities = filteredData.activities.filter(r => r.type === 'กิจกรรม');
+    const externalActivities = filteredData.activities.filter(r => r.type === 'กิจกรรมภายนอก');
+
+    const uniqueInternalCount = Array.from(new Set(internalActivities.map(r => `${r.date}|${r.title}`))).length;
+    const uniqueExternalCount = Array.from(new Set(externalActivities.map(r => `${r.date}|${r.title}`))).length;
 
     return state.employees.map(emp => {
-      const records = filteredData.activities.filter(r => r.employeeId === emp.id && (r.status === 'เข้าร่วม' || r.status === 'อื่นๆ'));
-      const activity = records.filter(r => r.type === 'กิจกรรม').length;
-      const external = records.filter(r => r.type === 'กิจกรรมภายนอก').length;
-      const percentage = totalUniqueCount > 0 ? Math.round((records.length / totalUniqueCount) * 100) : 0;
-      return { ...emp, activity, external, total: records.length, percentage };
+      const records = filteredData.activities.filter(r => r.employeeId === emp.id && (r.status === 'เข้าร่วม' || r.status === 'อื่นๆ' || r.status === 'สลับคู่'));
+      const activityCount = records.filter(r => r.type === 'กิจกรรม').length;
+      const externalCount = records.filter(r => r.type === 'กิจกรรมภายนอก').length;
+      
+      const activityPercentage = uniqueInternalCount > 0 ? Math.round((activityCount / uniqueInternalCount) * 100) : 0;
+      const externalPercentage = uniqueExternalCount > 0 ? Math.round((externalCount / uniqueExternalCount) * 100) : 0;
+      
+      return { 
+        ...emp, 
+        activity: activityCount, 
+        external: externalCount, 
+        activityPercentage,
+        externalPercentage
+      };
     });
   }, [filteredData.activities, state.employees]);
 
@@ -2153,66 +2276,62 @@ function ReportSection({ state }: { state: AppState }) {
     });
   }, [filteredData.leaves, state.employees]);
 
+  const comprehensiveSummary = useMemo(() => {
+    return state.employees.map(emp => {
+      const innov = innovationSummary.find(s => s.id === emp.id);
+      const active = activitySummary.find(s => s.id === emp.id);
+      const leave = leaveSummary.find(s => s.id === emp.id);
+      return {
+        ...emp,
+        innovation: innov?.innovation || 0,
+        kmOpl: innov?.kmOpl || 0,
+        kmOpk: innov?.kmOpk || 0,
+        creativity: innov?.creativity || 0,
+        activity: active?.activity || 0,
+        activityPercentage: active?.activityPercentage || 0,
+        external: active?.external || 0,
+        externalPercentage: active?.externalPercentage || 0,
+        sick: leave?.sick || 0,
+        business: leave?.business || 0,
+        late: leave?.late || 0,
+        official: leave?.official || 0
+      };
+    });
+  }, [innovationSummary, activitySummary, leaveSummary, state.employees]);
+
   const totalInnovations = filteredData.innovations.length;
   const totalActivitiesJoined = filteredData.activities.filter(r => r.status === 'เข้าร่วม' || r.status === 'อื่นๆ').length;
   const totalLeaves = filteredData.leaves.length;
 
-  const exportInnovation = () => {
-    const data = innovationSummary.map(s => ({
+  const exportComprehensive = () => {
+    const data = comprehensiveSummary.map(s => ({
       'ชื่อ-นามสกุล': s.name,
+      'ตำแหน่ง': s.position,
       'นวัตกรรม': s.innovation,
       'KM (OPL)': s.kmOpl,
       'KM (OPK)': s.kmOpk,
-      'รวม': s.total
-    }));
-    exportToCSV(data, `รายงานนวัตกรรม_${filterType}_${new Date().toLocaleDateString()}`);
-  };
-
-  const exportActivity = () => {
-    const data = activitySummary.map(s => ({
-      'ชื่อ-นามสกุล': s.name,
-      'กิจกรรม': s.activity,
+      'ความคิดสร้างสรรค์': s.creativity,
+      'กิจกรรมภายใน': s.activity,
+      '% ภายใน': s.activityPercentage + '%',
       'กิจกรรมภายนอก': s.external,
-      'ร้อยละการเข้าร่วม': s.percentage
-    }));
-    exportToCSV(data, `รายงานกิจกรรม_${filterType}_${new Date().toLocaleDateString()}`);
-  };
-
-  const exportLeave = () => {
-    const data = leaveSummary.map(s => ({
-      'ชื่อ-นามสกุล': s.name,
+      '% ภายนอก': s.externalPercentage + '%',
       'ลาป่วย': s.sick,
       'ลากิจ': s.business,
       'มาสาย': s.late,
-      'ราชการ': s.official,
-      'รวม': s.total
+      'ราชการ': s.official
     }));
-    exportToCSV(data, `รายงานการลา_${filterType}_${new Date().toLocaleDateString()}`);
+    exportToCSV(data, `สรุปรายบุคคล_${filterType}_${new Date().toLocaleDateString()}`);
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-12 pb-20">
+    <div className="max-w-6xl mx-auto space-y-8 pb-20">
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <h2 className="text-3xl font-bold serif">รายงานสรุปผล</h2>
         </div>
         <div className="flex flex-wrap gap-4 items-center">
           <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-bold uppercase opacity-50">ประเภทข้อมูล</label>
-            <select 
-              className="px-4 py-2 rounded-xl bg-white border border-black/5 text-xs font-bold focus:ring-2 focus:ring-violet-500"
-              value={selectedCategory}
-              onChange={e => setSelectedCategory(e.target.value as any)}
-            >
-              <option value="all">ทั้งหมด</option>
-              <option value="innovation">นวัตกรรม / KM</option>
-              <option value="activity">กิจกรรม</option>
-              <option value="leave">วันหยุดวันลา</option>
-            </select>
-          </div>
-
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-bold uppercase opacity-50">ช่วงเวลา</label>
+            <label className="text-[10px] font-bold uppercase opacity-50">เลือกช่วงสถิติ</label>
             <div className="flex bg-white border border-black/5 rounded-xl p-1">
               {[
                 { id: 'all', label: 'ทั้งหมด' },
@@ -2235,159 +2354,100 @@ function ReportSection({ state }: { state: AppState }) {
 
           {filterType !== 'all' && (
             <div className="flex flex-col gap-1">
-              <label className="text-[10px] font-bold uppercase opacity-50">เลือกวันที่</label>
+              <label className="text-[10px] font-bold uppercase opacity-50">
+                {filterType === 'day' ? 'เลือกวันที่' : filterType === 'month' ? 'เลือกเดือน/ปี' : 'เลือกปี'}
+              </label>
               <input 
-                type="date"
-                className="px-4 py-2 rounded-xl bg-white border border-black/5 text-xs font-bold focus:ring-2 focus:ring-violet-500"
-                value={selectedDate}
-                onChange={e => setSelectedDate(e.target.value)}
+                type={filterType === 'day' ? 'date' : filterType === 'month' ? 'month' : 'number'}
+                min={filterType === 'year' ? '2020' : undefined}
+                max={filterType === 'year' ? '2100' : undefined}
+                className="px-4 py-2 rounded-xl bg-white border border-black/5 text-xs font-bold focus:ring-2 focus:ring-violet-500 min-w-[150px]"
+                value={filterType === 'year' ? new Date(selectedDate).getFullYear() : (filterType === 'month' ? selectedDate.substring(0, 7) : selectedDate)}
+                onChange={e => {
+                  if (filterType === 'year') {
+                    const year = e.target.value;
+                    setSelectedDate(`${year}-01-01`);
+                  } else if (filterType === 'month') {
+                    setSelectedDate(`${e.target.value}-01`);
+                  } else {
+                    setSelectedDate(e.target.value);
+                  }
+                }}
               />
             </div>
           )}
           
           <div className="flex gap-2">
-            <button onClick={exportInnovation} className="bg-violet-50 text-violet-600 px-4 py-2.5 rounded-xl text-xs font-bold hover:bg-violet-100 transition-all flex items-center gap-2">
-              <Download size={16} /> นวัตกรรม
-            </button>
-            <button onClick={exportActivity} className="bg-violet-50 text-violet-600 px-4 py-2.5 rounded-xl text-xs font-bold hover:bg-violet-100 transition-all flex items-center gap-2">
-              <Download size={16} /> กิจกรรม
-            </button>
-            <button onClick={exportLeave} className="bg-violet-50 text-violet-600 px-4 py-2.5 rounded-xl text-xs font-bold hover:bg-violet-100 transition-all flex items-center gap-2">
-              <Download size={16} /> การลา
+            <button onClick={exportComprehensive} className="bg-violet-600 text-white px-6 py-2.5 rounded-xl text-xs font-bold hover:bg-violet-700 transition-all shadow-lg shadow-violet-600/20 flex items-center gap-2">
+              <Download size={16} /> ส่งออกข้อมูลสรุป (CSV)
             </button>
           </div>
         </div>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {(selectedCategory === 'all' || selectedCategory === 'innovation') && (
-          <StatCard label="นวัตกรรมทั้งหมด" value={totalInnovations} icon={<Lightbulb className="text-yellow-500" />} color="bg-yellow-50" />
-        )}
-        {(selectedCategory === 'all' || selectedCategory === 'activity') && (
-          <StatCard label="กิจกรรม (เข้าร่วม/อื่นๆ)" value={totalActivitiesJoined} icon={<ShieldCheck className="text-blue-500" />} color="bg-blue-50" />
-        )}
-        {(selectedCategory === 'all' || selectedCategory === 'leave') && (
-          <StatCard label="การลาทั้งหมด" value={totalLeaves} icon={<Calendar className="text-red-500" />} color="bg-red-50" />
-        )}
-      </div>
-
-      {/* Part 1: Innovation */}
-      {(selectedCategory === 'all' || selectedCategory === 'innovation') && (
-        <section className="space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-yellow-100 flex items-center justify-center text-yellow-600">
-              <Lightbulb size={20} />
-            </div>
-            <h3 className="text-xl font-bold">สรุปงานนวัตกรรม / KM</h3>
+      <section className="space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center text-violet-600">
+            <Users size={20} />
           </div>
-          <div className="bg-white rounded-3xl shadow-sm border border-black/5 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-black/5">
-                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest opacity-50">ชื่อ-นามสกุล</th>
-                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center">นวัตกรรม</th>
-                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center">KM (OPL)</th>
-                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center">KM (OPK)</th>
-                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center bg-yellow-50/50">รวม</th>
+          <h3 className="text-xl font-bold">ตารางสรุปสถิติจำแนกรายบุคคล</h3>
+        </div>
+        <div className="bg-white rounded-3xl shadow-sm border border-black/5 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse min-w-[1000px]">
+              <thead>
+                <tr className="bg-black/5">
+                  <th className="p-4 text-[10px] font-bold uppercase tracking-widest opacity-50 sticky left-0 bg-black/10 z-20" rowSpan={2}>ชื่อ-นามสกุล</th>
+                  <th className="p-2 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center border-l border-black/5" colSpan={4}>งานนวัตกรรม / KM</th>
+                  <th className="p-2 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center border-l border-black/5" colSpan={4}>กิจกรรม</th>
+                  <th className="p-2 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center border-l border-black/5 font-bold text-red-600" colSpan={4}>วันหยุดวันลา / มาสาย</th>
+                </tr>
+                <tr className="bg-black/5">
+                  <th className="px-2 py-3 text-[9px] font-bold uppercase text-center border-l border-black/5 bg-black/[0.02]">นวัตกรรม</th>
+                  <th className="px-2 py-3 text-[9px] font-bold uppercase text-center bg-black/[0.02]">OPL</th>
+                  <th className="px-2 py-3 text-[9px] font-bold uppercase text-center bg-black/[0.02]">OPK</th>
+                  <th className="px-2 py-3 text-[9px] font-bold uppercase text-center bg-black/[0.02]">ความคิดสร้างสรรค์</th>
+                  
+                  <th className="px-2 py-3 text-[9px] font-bold uppercase text-center border-l border-black/5 bg-blue-50/30">ภายใน</th>
+                  <th className="px-2 py-3 text-[9px] font-bold uppercase text-center bg-blue-50/30">%</th>
+                  <th className="px-2 py-3 text-[9px] font-bold uppercase text-center bg-blue-50/30">ภายนอก</th>
+                  <th className="px-2 py-3 text-[9px] font-bold uppercase text-center bg-blue-50/30">%</th>
+                  
+                  <th className="px-2 py-3 text-[9px] font-bold uppercase text-center border-l border-black/5 text-red-600 bg-red-50/30">ลาป่วย</th>
+                  <th className="px-2 py-3 text-[9px] font-bold uppercase text-center text-red-600 bg-red-50/30">ลากิจ</th>
+                  <th className="px-2 py-3 text-[9px] font-bold uppercase text-center text-red-600 bg-red-50/30">มาสาย</th>
+                  <th className="px-2 py-3 text-[9px] font-bold uppercase text-center text-red-600 bg-red-50/30">ราชการ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {comprehensiveSummary.map(row => (
+                  <tr key={row.id} className="border-b border-black/5 hover:bg-black/[0.01] transition-colors">
+                    <td className="p-4 font-bold text-sm sticky left-0 bg-white z-10 border-r border-black/5">{row.name}</td>
+                    
+                    <td className="p-2 text-center text-sm border-l border-black/5">{row.innovation || '-'}</td>
+                    <td className="p-2 text-center text-sm">{row.kmOpl || '-'}</td>
+                    <td className="p-2 text-center text-sm">{row.kmOpk || '-'}</td>
+                    <td className="p-2 text-center text-sm">{row.creativity || '-'}</td>
+                    
+                    <td className="p-2 text-center text-sm border-l border-black/5 font-medium">{row.activity || '-'}</td>
+                    <td className="p-2 text-center text-sm font-medium bg-blue-50/10">{row.activityPercentage || 0}%</td>
+                    <td className="p-2 text-center text-sm font-medium">{row.external || '-'}</td>
+                    <td className="p-2 text-center text-sm font-medium bg-blue-50/10">{row.externalPercentage || 0}%</td>
+                    
+                    <td className="p-2 text-center text-sm border-l border-black/5 text-red-600 font-medium">{row.sick || '-'}</td>
+                    <td className="p-2 text-center text-sm text-red-600 font-medium">{row.business || '-'}</td>
+                    <td className="p-2 text-center text-sm text-red-600 font-medium">{row.late || '-'}</td>
+                    <td className="p-2 text-center text-sm text-red-600 font-medium">{row.official || '-'}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {innovationSummary.map(row => (
-                    <tr key={row.id} className="border-b border-black/5 hover:bg-black/[0.01]">
-                      <td className="p-4 font-bold text-sm">{row.name}</td>
-                      <td className="p-4 text-center text-sm">{row.innovation || '-'}</td>
-                      <td className="p-4 text-center text-sm">{row.kmOpl || '-'}</td>
-                      <td className="p-4 text-center text-sm">{row.kmOpk || '-'}</td>
-                      <td className="p-4 text-center font-bold text-sm bg-yellow-50/30">{row.total || '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </section>
-      )}
-
-      {/* Part 2: Activity */}
-      {(selectedCategory === 'all' || selectedCategory === 'activity') && (
-        <section className="space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600">
-              <ShieldCheck size={20} />
-            </div>
-            <h3 className="text-xl font-bold">สรุปกิจกรรม</h3>
-          </div>
-          <div className="bg-white rounded-3xl shadow-sm border border-black/5 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-black/5">
-                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest opacity-50">ชื่อ-นามสกุล</th>
-                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center">กิจกรรม</th>
-                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center">กิจกรรมภายนอก</th>
-                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center bg-blue-50/50">เข้าร่วม/อื่นๆ (%)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {activitySummary.map(row => (
-                    <tr key={row.id} className="border-b border-black/5 hover:bg-black/[0.01]">
-                      <td className="p-4 font-bold text-sm">{row.name}</td>
-                      <td className="p-4 text-center text-sm">{row.activity || '-'}</td>
-                      <td className="p-4 text-center text-sm">{row.external || '-'}</td>
-                      <td className="p-4 text-center font-bold text-sm bg-blue-50/30">{row.percentage}%</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* Part 3: Leave */}
-      {(selectedCategory === 'all' || selectedCategory === 'leave') && (
-        <section className="space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center text-red-600">
-              <Calendar size={20} />
-            </div>
-            <h3 className="text-xl font-bold">สรุปวันหยุดวันลา / มาสาย</h3>
-          </div>
-          <div className="bg-white rounded-3xl shadow-sm border border-black/5 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-black/5">
-                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest opacity-50">ชื่อ-นามสกุล</th>
-                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center">ลาป่วย</th>
-                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center">ลากิจ</th>
-                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center">มาสาย</th>
-                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center">ราชการ</th>
-                    <th className="p-4 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center bg-red-50/50">รวม</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {leaveSummary.map(row => (
-                    <tr key={row.id} className="border-b border-black/5 hover:bg-black/[0.01]">
-                      <td className="p-4 font-bold text-sm">{row.name}</td>
-                      <td className="p-4 text-center text-sm">{row.sick || '-'}</td>
-                      <td className="p-4 text-center text-sm">{row.business || '-'}</td>
-                      <td className="p-4 text-center text-sm">{row.late || '-'}</td>
-                      <td className="p-4 text-center text-sm">{row.official || '-'}</td>
-                      <td className="p-4 text-center font-bold text-sm bg-red-50/30">{row.total || '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-      )}
+        </div>
+      </section>
     </div>
   );
 }
-
 function AdminSection({ 
   admins, 
   employees,
@@ -2507,6 +2567,23 @@ function AdminSection({
             <p className="text-[#1A1A1A]/50">จัดการสิทธิ์ผู้ดูแลระบบและแอดมินสำรอง</p>
           </div>
           <div className="flex gap-3">
+            <button 
+              onClick={async () => {
+                try {
+                  const batch = writeBatch(db);
+                  EMPLOYEES.forEach(emp => {
+                    batch.set(doc(db, 'employees', emp.id.toString()), emp);
+                  });
+                  await batch.commit();
+                  setToast({ message: 'คืนค่าข้อมูลพนักงานทั้งหมดสำเร็จ', type: 'success' });
+                } catch (err) {
+                  setToast({ message: 'เกิดข้อผิดพลาดในการคืนค่าข้อมูล', type: 'error' });
+                }
+              }}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-green-50 text-green-600 border border-green-100 text-sm font-bold hover:bg-green-100 transition-colors"
+            >
+              <RefreshCw size={16} /> คืนค่ารายชื่อพนักงานทั้งหมด
+            </button>
             <button 
               onClick={() => setShowChangePass(true)}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-black/5 text-sm font-bold hover:bg-black/5 transition-colors"

@@ -39,9 +39,10 @@
         "date": { "type": "string" },
         "type": { "type": "string", "enum": ["กิจกรรม", "กิจกรรมภายนอก"] },
         "title": { "type": "string" },
-        "status": { "type": "string", "enum": ["เข้าร่วม", "ไม่เข้าร่วม", "อื่นๆ"] },
+        "status": { "type": "string", "enum": ["เข้าร่วม", "ไม่เข้าร่วม", "อื่นๆ", "สลับคู่"] },
         "reason": { "type": "string" },
-        "imageUrl": { "type": "string" }
+        "imageUrl": { "type": "string" },
+        "swapWithId": { "type": "number" }
       },
       "required": ["id", "employeeId", "date", "type", "title", "status"]
     },
