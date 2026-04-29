@@ -202,21 +202,29 @@ function LoginModal({ isOpen, onClose, onLogin, admins, firebaseUser, setToast }
               <p className="text-xs text-red-500 font-bold text-center">{error}</p>
             </div>
           )}
-          <div className="flex gap-3 pt-2">
+          <div className="flex flex-col gap-3 pt-2">
+            <button 
+              type="submit" 
+              disabled={isLoggingIn}
+              className="w-full p-3 rounded-xl font-bold bg-violet-600 text-white hover:bg-violet-700 transition-colors shadow-lg shadow-violet-600/20 disabled:opacity-50"
+            >
+              {isLoggingIn ? 'กำลังเชื่อมต่อ...' : 'เข้าสู่ระบบแอดมิน'}
+            </button>
             <button 
               type="button" 
               onClick={onClose} 
               disabled={isLoggingIn}
-              className="flex-1 p-3 rounded-xl font-bold bg-black/5 hover:bg-black/10 transition-colors disabled:opacity-50"
+              className="w-full p-3 rounded-xl font-bold bg-violet-50 text-violet-600 hover:bg-violet-100 transition-colors disabled:opacity-50"
             >
-              ยกเลิก
+              เข้าชมแบบผู้เยี่ยมชม (Visitor)
             </button>
             <button 
-              type="submit" 
+              type="button" 
+              onClick={onClose} 
               disabled={isLoggingIn}
-              className="flex-1 p-3 rounded-xl font-bold bg-violet-600 text-white hover:bg-violet-700 transition-colors shadow-lg shadow-violet-600/20 disabled:opacity-50"
+              className="w-full p-2 text-sm font-medium opacity-50 hover:opacity-100 transition-opacity"
             >
-              {isLoggingIn ? 'กำลังเชื่อมต่อ...' : 'เข้าสู่ระบบ'}
+              ยกเลิก
             </button>
           </div>
         </form>
@@ -255,8 +263,17 @@ export default function App() {
 
     // Listen to collections that are public read
     const unsubEmployees = onSnapshot(collection(db, 'employees'), (snapshot) => {
-      const employees = snapshot.docs.map(doc => doc.data() as Employee).sort((a, b) => a.id - b.id);
-      setState(prev => ({ ...prev, employees: employees.length > 0 ? employees : EMPLOYEES }));
+      const firestoreEmployees = snapshot.docs.map(doc => doc.data() as Employee);
+      const fsIds = new Set(firestoreEmployees.map(e => e.id));
+      
+      // Merge: Firestore records take precedence. 
+      // If an ID from default EMPLOYEES is not in Firestore, include it.
+      const merged = [
+        ...firestoreEmployees,
+        ...EMPLOYEES.filter(e => !fsIds.has(e.id))
+      ].sort((a, b) => a.id - b.id);
+      
+      setState(prev => ({ ...prev, employees: merged }));
     }, (err) => console.error("Employees listener error:", err));
 
     const unsubInnovation = onSnapshot(collection(db, 'innovationRecords'), (snapshot) => {
@@ -355,18 +372,7 @@ export default function App() {
     const newId = state.employees.length > 0 ? Math.max(...state.employees.map(e => e.id)) + 1 : 1;
     const newEmp = { ...emp, id: newId };
     try {
-      const snap = await getDocs(collection(db, 'employees'));
-      if (snap.empty) {
-        // Bootstrap the default list plus the new employee
-        const batch = writeBatch(db);
-        EMPLOYEES.forEach(e => {
-          batch.set(doc(db, 'employees', e.id.toString()), e);
-        });
-        batch.set(doc(db, 'employees', newId.toString()), newEmp);
-        await batch.commit();
-      } else {
-        await setDoc(doc(db, 'employees', newId.toString()), newEmp);
-      }
+      await setDoc(doc(db, 'employees', newId.toString()), newEmp);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `employees/${newId}`);
     }
@@ -374,18 +380,7 @@ export default function App() {
 
   const updateEmployee = async (id: number, emp: { name: string, position: string, group?: 'A' | 'B' | 'Both' }) => {
     try {
-      const snap = await getDocs(collection(db, 'employees'));
-      if (snap.empty) {
-        // Bootstrap the default list with the updated employee
-        const batch = writeBatch(db);
-        EMPLOYEES.forEach(e => {
-          const data = e.id === id ? { ...emp, id } : e;
-          batch.set(doc(db, 'employees', e.id.toString()), data);
-        });
-        await batch.commit();
-      } else {
-        await setDoc(doc(db, 'employees', id.toString()), { ...emp, id });
-      }
+      await setDoc(doc(db, 'employees', id.toString()), { ...emp, id });
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `employees/${id}`);
     }
