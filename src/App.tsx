@@ -129,20 +129,16 @@ function LoginModal({ isOpen, onClose, onLogin, admins, firebaseUser, setToast }
     }
     
     if (admin) {
-      try {
-        // Automatic background connection to database to satisfy security rules
-        if (!firebaseUser) {
-          await loginAnonymously();
-        }
-        onLogin(admin);
-        setUsername('');
-        setPassword('');
-        setError('');
-        onClose();
-      } catch (err) {
-        console.error("Auth error:", err);
-        setError('ไม่สามารถเชื่อมต่อฐานข้อมูลได้ กรุณาลองใหม่อีกครั้ง');
-      }
+      // Try background connection but don't block login if it fails
+      loginAnonymously().catch(err => {
+        console.warn("Background auth failed, data might not save:", err);
+      });
+      
+      onLogin(admin);
+      setUsername('');
+      setPassword('');
+      setError('');
+      onClose();
     } else {
       setError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง');
     }
