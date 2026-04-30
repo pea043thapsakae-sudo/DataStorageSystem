@@ -734,6 +734,7 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [filterType, setFilterType] = useState<'ทั้งหมด' | typeof INNOVATION_TYPES[number]>('ทั้งหมด');
+  const [searchTerm, setSearchTerm] = useState('');
   
   const [formData, setFormData] = useState<{
     employeeId: number;
@@ -1001,12 +1002,22 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
             <Search size={20} className="text-violet-600" />
             <h3 className="text-xl font-bold">ประวัติการบันทึก</h3>
           </div>
-          <div className="flex bg-white border border-black/5 rounded-xl p-1 shrink-0">
+          <div className="flex-1 max-w-md relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30" />
+            <input 
+              type="text"
+              placeholder="ค้นหาชื่อหัวข้อ, รายละเอียด หรือชื่อผู้จัดทำ..."
+              className="w-full pl-10 pr-4 py-2 rounded-xl bg-white border border-black/5 text-sm focus:ring-2 focus:ring-violet-500 transition-all"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+            />
+          </div>
+          <div className="flex bg-white border border-black/5 rounded-xl p-1 shrink-0 overflow-x-auto">
             {['ทั้งหมด', ...INNOVATION_TYPES].map((type) => (
               <button
                 key={type}
                 onClick={() => setFilterType(type as any)}
-                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
                   filterType === type ? 'bg-violet-600 text-white shadow-sm' : 'hover:bg-black/5 opacity-50'
                 }`}
               >
@@ -1022,6 +1033,18 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
           ) : (
             records
               .filter(r => filterType === 'ทั้งหมด' || r.type === filterType)
+              .filter(r => {
+                if (!searchTerm.trim()) return true;
+                const term = searchTerm.toLowerCase();
+                const emp = employees.find(e => e.id === r.employeeId);
+                const hasParticipant = r.participants?.some(pid => employees.find(e => e.id === pid)?.name.toLowerCase().includes(term));
+                return (
+                  r.title.toLowerCase().includes(term) || 
+                  r.description?.toLowerCase().includes(term) || 
+                  emp?.name.toLowerCase().includes(term) ||
+                  hasParticipant
+                );
+              })
               .sort((a, b) => a.type.localeCompare(b.type)) // Sort by type as requested
               .slice().reverse() // Show newest first within type groups or total
               .map(record => {
@@ -1114,6 +1137,7 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
   const [editingGroup, setEditingGroup] = useState<{ date: string, type: string, title: string } | null>(null);
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<{ date: string, type: string, title: string } | null>(null);
   const [activeGroup, setActiveGroup] = useState<'A' | 'B'>('A');
+  const [searchTerm, setSearchTerm] = useState('');
   const [headerData, setHeaderData] = useState({ 
     type: 'กิจกรรมภายนอก' as any, 
     title: '', 
@@ -1485,7 +1509,22 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
       )}
 
       <div className="space-y-4">
-        <h3 className="text-xl font-bold">ประวัติกิจกรรมภายนอก</h3>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <Search size={20} className="text-violet-600" />
+            <h3 className="text-xl font-bold">ประวัติกิจกรรมภายนอก</h3>
+          </div>
+          <div className="relative flex-1 max-w-md">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30" />
+            <input 
+              type="text"
+              placeholder="ค้นหาตามชื่อกิจกรรม, วันที่ หรือชื่อพนักงาน..."
+              className="w-full pl-10 pr-4 py-2 rounded-xl bg-white border border-black/5 text-sm focus:ring-2 focus:ring-violet-500 transition-all"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+            />
+          </div>
+        </div>
         <div className="grid gap-4">
           {records.filter(r => r.type === 'กิจกรรมภายนอก').length === 0 ? (
             <div className="p-10 text-center opacity-30 italic">ยังไม่มีข้อมูลกิจกรรมภายนอก</div>
@@ -1497,7 +1536,15 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
                 acc[key].push(r);
                 return acc;
               }, {} as { [key: string]: ActivityRecord[] })
-            ).slice().reverse().map(([key, group]) => (
+            ).filter(([key, group]) => {
+              if (!searchTerm.trim()) return true;
+              const term = searchTerm.toLowerCase();
+              const hasEmployee = group.some(r => {
+                const emp = employees.find(e => e.id === r.employeeId);
+                return emp?.name.toLowerCase().includes(term);
+              });
+              return key.toLowerCase().includes(term) || hasEmployee;
+            }).reverse().map(([key, group]) => (
               <div key={key} className="bg-white p-6 rounded-2xl border border-black/5 space-y-4 group">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1588,6 +1635,7 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
 function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, isAdmin, setToast }: { employees: Employee[], records: ActivityRecord[], onAdd: (r: any[]) => Promise<void>, onUpdate: (oldGroup: { date: string, type: string, title: string }, newRecords: any[]) => Promise<void>, onDeleteGroup: (date: string, type: string, title: string) => Promise<void>, isAdmin: boolean, setToast: (t: any) => void }) {
   const [editingGroup, setEditingGroup] = useState<{ date: string, type: string, title: string } | null>(null);
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<{ date: string, type: string, title: string } | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
   const [headerData, setHeaderData] = useState({ 
     type: 'กิจกรรม' as any, 
     title: '', 
@@ -1831,7 +1879,22 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
       )}
 
       <div className="space-y-4">
-        <h3 className="text-xl font-bold">ประวัติกิจกรรมล่าสุด</h3>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <Search size={20} className="text-violet-600" />
+            <h3 className="text-xl font-bold">ประวัติกิจกรรมล่าสุด</h3>
+          </div>
+          <div className="relative flex-1 max-w-md">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30" />
+            <input 
+              type="text"
+              placeholder="ค้นหาตามชื่อกิจกรรม, วันที่ หรือชื่อพนักงาน..."
+              className="w-full pl-10 pr-4 py-2 rounded-xl bg-white border border-black/5 text-sm focus:ring-2 focus:ring-violet-500 transition-all"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+            />
+          </div>
+        </div>
         <div className="grid gap-4">
           {records.filter(r => r.type === 'กิจกรรม').length === 0 ? (
             <div className="p-10 text-center opacity-30 italic">ยังไม่มีข้อมูลกิจกรรม</div>
@@ -1843,7 +1906,15 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
                 acc[key].push(r);
                 return acc;
               }, {} as { [key: string]: ActivityRecord[] })
-            ).slice().reverse().slice(0, 10).map(([key, group]) => (
+            ).filter(([key, group]) => {
+              if (!searchTerm.trim()) return true;
+              const term = searchTerm.toLowerCase();
+              const hasEmployee = group.some(r => {
+                const emp = employees.find(e => e.id === r.employeeId);
+                return emp?.name.toLowerCase().includes(term);
+              });
+              return key.toLowerCase().includes(term) || hasEmployee;
+            }).reverse().map(([key, group]) => (
               <div key={key} className="bg-white p-6 rounded-2xl border border-black/5 space-y-4 group">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1902,6 +1973,7 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
   const [formData, setFormData] = useState({ 
     employeeId: employees[0]?.id || 1, 
     type: 'ลาป่วย' as any, 
@@ -2104,12 +2176,36 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
       )}
 
       <div className="space-y-4">
-        <h3 className="text-xl font-bold">ประวัติการลา</h3>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <Search size={20} className="text-violet-600" />
+            <h3 className="text-xl font-bold">ประวัติการลา</h3>
+          </div>
+          <div className="flex-1 max-w-md relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30" />
+            <input 
+              type="text"
+              placeholder="ค้นหาชื่อพนักงาน หรือเหตุผลการลา..."
+              className="w-full pl-10 pr-4 py-2 rounded-xl bg-white border border-black/5 text-sm focus:ring-2 focus:ring-violet-500 transition-all"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+            />
+          </div>
+        </div>
         <div className="grid gap-4">
           {records.length === 0 ? (
             <div className="p-10 text-center opacity-30 italic">ยังไม่มีข้อมูลการลา</div>
           ) : (
-            records.slice().reverse().map(record => {
+            records.filter(r => {
+              if (!searchTerm.trim()) return true;
+              const term = searchTerm.toLowerCase();
+              const emp = employees.find(e => e.id === r.employeeId);
+              return (
+                emp?.name.toLowerCase().includes(term) || 
+                r.reason.toLowerCase().includes(term) || 
+                r.type.toLowerCase().includes(term)
+              );
+            }).slice().reverse().map(record => {
               const emp = employees.find(e => e.id === record.employeeId);
               return (
                 <div key={record.id} className="bg-white p-6 rounded-2xl border border-black/5 flex items-center justify-between group">
