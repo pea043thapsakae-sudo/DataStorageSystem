@@ -2612,13 +2612,24 @@ function ReportSection({ state }: { state: AppState }) {
   }, [filteredData.activities, state.employees]);
 
   const leaveSummary = useMemo(() => {
+    const getDays = (durationStr: string) => {
+      const match = durationStr.match(/(\d+(\.\d+)?)/);
+      return match ? parseFloat(match[1]) : 1;
+    };
+
     return state.employees.map(emp => {
       const records = filteredData.leaves.filter(r => r.employeeId === emp.id);
-      const sick = records.filter(r => r.type === 'ลาป่วย').length;
-      const business = records.filter(r => r.type === 'ลากิจ').length;
-      const late = records.filter(r => r.type === 'มาสาย').length;
-      const official = records.filter(r => r.type === 'ราชการ').length;
-      return { ...emp, sick, business, late, official, total: records.length };
+      
+      const sumDays = (type: string) => 
+        records.filter(r => r.type === type)
+          .reduce((sum, r) => sum + getDays(r.duration), 0);
+
+      const sick = sumDays('ลาป่วย');
+      const business = sumDays('ลากิจ');
+      const late = sumDays('มาสาย');
+      const official = sumDays('ราชการ');
+      
+      return { ...emp, sick, business, late, official, total: sick + business + late + official };
     });
   }, [filteredData.leaves, state.employees]);
 
