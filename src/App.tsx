@@ -1640,8 +1640,7 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
         title: headerData.title || headerData.type,
         date: headerData.date,
         status: attendance[emp.id]?.status || 'เข้าร่วม',
-        reason: attendance[emp.id]?.reason || '',
-        swapWithId: attendance[emp.id]?.status === 'สลับคู่' ? attendance[emp.id]?.swapWithId || null : null
+        reason: attendance[emp.id]?.reason || ''
       }));
 
       if (editingGroup) {
@@ -1764,7 +1763,7 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
                       </td>
                       <td className="p-4">
                         <div className="flex flex-wrap gap-2">
-                          {['เข้าร่วม', 'ไม่เข้าร่วม', 'อื่นๆ', 'สลับคู่'].map((status) => (
+                          {['เข้าร่วม', 'ไม่เข้าร่วม', 'อื่นๆ'].map((status) => (
                             <button
                               key={status}
                               type="button"
@@ -1782,18 +1781,6 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
                       </td>
                       <td className="p-4">
                         <div className="space-y-2">
-                          {attendance[emp.id]?.status === 'สลับคู่' && (
-                            <select
-                              className="w-full p-2 text-xs rounded-lg bg-slate-50 border-none focus:ring-1 focus:ring-violet-500"
-                              value={attendance[emp.id]?.swapWithId || ''}
-                              onChange={e => updateAttendance(emp.id, 'สลับคู่', undefined, Number(e.target.value))}
-                            >
-                              <option value="">เลือกพนักงานที่สลับคู่...</option>
-                              {employees.filter(e => e.id !== emp.id).map(e => (
-                                <option key={e.id} value={e.id}>{e.name} ({e.position})</option>
-                              ))}
-                            </select>
-                          )}
                           {attendance[emp.id]?.status === 'อื่นๆ' && (
                             <input 
                               type="text"
@@ -1869,7 +1856,6 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
                   <div className="flex items-center gap-4">
                     <div className="flex gap-2 text-xs font-bold">
                       <span className="text-green-600">✓ {group.filter(r => r.status === 'เข้าร่วม').length}</span>
-                      <span className="text-blue-600">⇄ {group.filter(r => r.status === 'สลับคู่').length}</span>
                       <span className="text-red-600">✗ {group.filter(r => r.status === 'ไม่เข้าร่วม').length}</span>
                     </div>
                     {isAdmin && (
@@ -1883,24 +1869,17 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                   {group.map(r => {
                     const emp = employees.find(e => e.id === r.employeeId);
-                    const swapEmp = r.swapWithId ? employees.find(e => e.id === r.swapWithId) : null;
                     return (
                       <div key={r.id} className={`p-2 rounded-lg text-[10px] flex flex-col gap-1 ${
                         r.status === 'เข้าร่วม' ? 'bg-green-50 text-green-800' : 
-                        r.status === 'ไม่เข้าร่วม' ? 'bg-red-50 text-red-800' : 
-                        r.status === 'สลับคู่' ? 'bg-blue-50 text-blue-800' : 'bg-gray-100 text-gray-800'
+                        r.status === 'ไม่เข้าร่วม' ? 'bg-red-50 text-red-800' : 'bg-gray-100 text-gray-800'
                       }`}>
                         <div className="flex items-center justify-between">
                           <span className="truncate font-bold">{emp?.name}</span>
                           <span className="shrink-0 ml-1">
-                            {r.status === 'เข้าร่วม' ? '✓' : r.status === 'ไม่เข้าร่วม' ? '✗' : r.status === 'สลับคู่' ? '⇄' : '?'}
+                            {r.status === 'เข้าร่วม' ? '✓' : r.status === 'ไม่เข้าร่วม' ? '✗' : '?'}
                           </span>
                         </div>
-                        {r.status === 'สลับคู่' && swapEmp && (
-                          <div className="text-[8px] opacity-70 italic border-t border-blue-200 mt-1 pt-1">
-                            คู่สลับ: {swapEmp.name}
-                          </div>
-                        )}
                         {r.status === 'อื่นๆ' && r.reason && (
                           <div className="text-[8px] opacity-70 italic border-t border-gray-200 mt-1 pt-1 truncate">
                             {r.reason}
