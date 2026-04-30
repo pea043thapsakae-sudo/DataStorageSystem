@@ -2197,6 +2197,7 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
   const [isSaving, setIsSaving] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [lateDates, setLateDates] = useState<string[]>([]);
   const [formData, setFormData] = useState({ 
     employeeId: employees[0]?.id || 1, 
     type: 'ลาป่วย' as any, 
@@ -2205,6 +2206,20 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
     endDate: new Date().toISOString().split('T')[0],
     duration: '1 วัน'
   });
+
+  const handleAddLateDate = (date: string) => {
+    if (date && !lateDates.includes(date)) {
+      const newDates = [...lateDates, date].sort();
+      setLateDates(newDates);
+      setFormData(prev => ({ ...prev, duration: `${newDates.length} วัน` }));
+    }
+  };
+
+  const handleRemoveLateDate = (index: number) => {
+    const newDates = lateDates.filter((_, i) => i !== index);
+    setLateDates(newDates);
+    setFormData(prev => ({ ...prev, duration: `${newDates.length} วัน` }));
+  };
 
   useEffect(() => {
     if (employees.length > 0 && !editingId) {
@@ -2238,7 +2253,11 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
         setEditingId(null);
         setToast({ message: 'แก้ไขข้อมูลการลาสำเร็จ', type: 'success' });
       } else {
-        await onAdd(formData);
+        const finalData = { ...formData };
+        if (formData.type === 'มาสาย' && lateDates.length > 0) {
+          finalData.reason = `มาสายวันที่: ${lateDates.map(d => new Date(d).toLocaleDateString('th-TH')).join(', ')}${formData.reason ? ` - ${formData.reason}` : ''}`;
+        }
+        await onAdd(finalData);
         setToast({ message: 'บันทึกข้อมูลการลาสำเร็จ', type: 'success' });
       }
       setFormData({ 
@@ -2249,6 +2268,7 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
         endDate: new Date().toISOString().split('T')[0],
         duration: '1 วัน'
       });
+      setLateDates([]);
     } catch (err: any) {
       console.error("Leave submit error:", err);
       let msg = "เกิดข้อผิดพลาดในการบันทึกข้อมูลการลา กรุณาลองใหม่อีกครั้ง";
@@ -2312,50 +2332,96 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
               </select>
             </div>
             <div className="space-y-2">
-              <label className="text-xs font-bold uppercase tracking-widest opacity-50">ประเภทการลา</label>
+              <label className="text-xs font-bold uppercase tracking-widest opacity-50">ประเภทการลา / การมาสาย</label>
               <select 
                 className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500"
                 value={formData.type}
-                onChange={e => setFormData({ ...formData, type: e.target.value as any })}
+                onChange={e => {
+                  const newType = e.target.value as any;
+                  setFormData({ ...formData, type: newType });
+                  if (newType === 'มาสาย') {
+                    setFormData(prev => ({ ...prev, duration: '0 วัน' }));
+                  } else {
+                    setFormData(prev => ({ ...prev, duration: '1 วัน' }));
+                  }
+                }}
               >
                 {LEAVE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
-            <div className="space-y-2">
-              <label className="text-xs font-bold uppercase tracking-widest opacity-50">ตั้งแต่วันที่</label>
-              <input 
-                type="date"
-                className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500"
-                value={formData.startDate}
-                onChange={e => setFormData({ ...formData, startDate: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs font-bold uppercase tracking-widest opacity-50">ถึงวันที่</label>
-              <input 
-                type="date"
-                className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500"
-                value={formData.endDate}
-                onChange={e => setFormData({ ...formData, endDate: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs font-bold uppercase tracking-widest opacity-50">ช่วงเวลา/จำนวนวัน</label>
-              <select 
-                className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500"
-                value={formData.duration}
-                onChange={e => setFormData({ ...formData, duration: e.target.value })}
-              >
-                {LEAVE_DURATIONS.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-            </div>
-            <div className="md:col-span-1 space-y-2">
-              <label className="text-xs font-bold uppercase tracking-widest opacity-50">เหตุผลการลา</label>
-              <input 
-                type="text"
-                required
-                placeholder="ระบุเหตุผล..."
-                className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500"
+
+            {formData.type === 'มาสาย' ? (
+              <div className="md:col-span-2 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-widest opacity-50 text-violet-600">กดเลือกวันที่มาสาย (ปี/เดือน/วัน)</label>
+                  <div className="flex gap-2">
+                    <input 
+                      type="date"
+                      className="flex-1 p-3 rounded-xl bg-slate-100 border-none focus:ring-2 focus:ring-violet-500"
+                      onChange={e => handleAddLateDate(e.target.value)}
+                      value=""
+                    />
+                    <div className="px-4 py-3 bg-violet-100 text-violet-700 rounded-xl font-bold">
+                      รวม {lateDates.length} วัน
+                    </div>
+                  </div>
+                </div>
+
+                {lateDates.length > 0 && (
+                  <div className="flex flex-wrap gap-2 p-4 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
+                    {lateDates.map((date, idx) => (
+                      <div key={idx} className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg shadow-sm font-bold text-xs">
+                        <span>{new Date(date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}</span>
+                        <button 
+                          type="button" 
+                          onClick={() => handleRemoveLateDate(idx)}
+                          className="text-red-500 hover:text-red-700"
+                        >
+                          <Plus size={14} className="rotate-45" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-widest opacity-50">ตั้งแต่วันที่</label>
+                  <input 
+                    type="date"
+                    className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500"
+                    value={formData.startDate}
+                    onChange={e => setFormData({ ...formData, startDate: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-widest opacity-50">ถึงวันที่</label>
+                  <input 
+                    type="date"
+                    className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500"
+                    value={formData.endDate}
+                    onChange={e => setFormData({ ...formData, endDate: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2 col-span-1 md:col-span-2">
+                  <label className="text-xs font-bold uppercase tracking-widest opacity-50">ช่วงเวลา/จำนวนวัน</label>
+                  <select 
+                    className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500"
+                    value={formData.duration}
+                    onChange={e => setFormData({ ...formData, duration: e.target.value })}
+                  >
+                    {LEAVE_DURATIONS.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+              </>
+            )}
+
+            <div className="md:col-span-2 space-y-2">
+              <label className="text-xs font-bold uppercase tracking-widest opacity-50">เหตุผลเพิ่มเติม (ถ้ามี)</label>
+              <textarea 
+                className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500 min-h-[100px]"
+                placeholder="ระบุรายละเอียดเพิ่มเติม..."
                 value={formData.reason}
                 onChange={e => setFormData({ ...formData, reason: e.target.value })}
               />
