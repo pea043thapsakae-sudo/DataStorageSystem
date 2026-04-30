@@ -17,6 +17,9 @@ export interface InnovationRecord {
   contentId?: string;
   title: string;
   description: string;
+  pdfUrl?: string;
+  pdfName?: string;
+  linkUrl?: string;
 }
 
 export interface ActivityRecord {
@@ -29,6 +32,7 @@ export interface ActivityRecord {
   reason?: string;
   imageUrl?: string;
   imageUrls?: string[];
+  linkUrls?: string[];
   swapWithId?: number;
 }
 

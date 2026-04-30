@@ -25,12 +25,17 @@ import {
   EyeOff,
   ShieldCheck as ShieldCheckIcon,
   RefreshCw,
-  Search
+  Search,
+  FileText,
+  ExternalLink,
+  X,
+  Image as ImageIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { EMPLOYEES, INNOVATION_TYPES, KM_SUBTYPES, ACTIVITY_TYPES, LEAVE_TYPES, LEAVE_DURATIONS } from './constants';
 import { AppState, InnovationRecord, ActivityRecord, LeaveRecord, Admin, Employee } from './types';
-import { db, auth, initAuth, handleFirestoreError, OperationType, storage, loginWithGoogle, loginAnonymously, onAuthStateChanged } from './firebase';
+import imageCompression from 'browser-image-compression';
+import { db, auth, initAuth, handleFirestoreError, OperationType, storage, loginWithGoogle, loginAnonymously, onAuthStateChanged, uploadBytesResumable } from './firebase';
 import { 
   collection, 
   doc, 
@@ -45,11 +50,11 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 const STORAGE_KEY = 'employee_records_v1';
 
-function Toast({ message, type, onClose }: { message: string, type: 'success' | 'error', onClose: () => void }) {
+function Toast({ message, type, onClose }: { message: string, type: 'success' | 'error' | 'info', onClose: () => void }) {
   useEffect(() => {
-    const timer = setTimeout(onClose, 3000);
+    const timer = setTimeout(onClose, type === 'info' ? 10000 : 3000); // Info stays longer
     return () => clearTimeout(timer);
-  }, [onClose]);
+  }, [onClose, type]);
 
   return (
     <motion.div 
@@ -57,7 +62,9 @@ function Toast({ message, type, onClose }: { message: string, type: 'success' | 
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 50 }}
       className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-2xl shadow-xl flex items-center gap-3 ${
-        type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+        type === 'success' ? 'bg-green-600 text-white' : 
+        type === 'error' ? 'bg-red-600 text-white' : 
+        'bg-blue-600 text-white'
       }`}
     >
       <div className="text-sm font-bold">{message}</div>
@@ -745,6 +752,10 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
     title: string;
     description: string;
     date: string;
+    pdfUrl?: string;
+    pdfName?: string;
+    pdfFile?: File | null;
+    linkUrl?: string;
   }>({ 
     employeeId: employees.length > 0 ? employees[0].id : 1, 
     participants: [],
@@ -753,7 +764,11 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
     contentId: '',
     title: '', 
     description: '', 
-    date: new Date().toISOString().split('T')[0] 
+    date: new Date().toISOString().split('T')[0],
+    pdfUrl: '',
+    pdfName: '',
+    pdfFile: null,
+    linkUrl: ''
   });
 
   const [isSaving, setIsSaving] = useState(false);
@@ -771,27 +786,49 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
     e.preventDefault();
     setIsSaving(true);
     
-    // Safety timeout
+    // Safety warning timeout
     const timeout = setTimeout(() => {
-      if (isSaving) {
-        setIsSaving(false);
-        setToast({ message: "การบันทึกใช้เวลานานเกินไป กรุณาตรวจสอบอินเทอร์เน็ต", type: 'error' });
-      }
-    }, 15000);
+      setToast({ message: "การอัปโหลดไฟล์อาจใช้เวลานาน กรุณารอสักครู่...", type: 'info' });
+    }, 10000);
 
     try {
-      const dataToSave = { ...formData };
-      if (dataToSave.type !== 'KM') {
-        delete dataToSave.kmSubtype;
-        delete dataToSave.contentId;
+      let dataToSave = { ...formData };
+      
+      // Handle PDF upload if any
+      if (dataToSave.pdfFile && (dataToSave.type === 'KM' || dataToSave.type === 'ความคิดสร้างสรรค์')) {
+        setToast({ message: "กำลังอัปโหลดเอกสาร PDF...", type: 'info' });
+        const fileRef = ref(storage, `innovation_pdfs/${Date.now()}_${dataToSave.pdfFile.name}`);
+        const uploadTask = uploadBytesResumable(fileRef, dataToSave.pdfFile);
+        
+        const url = await new Promise<string>((resolve, reject) => {
+          uploadTask.on('state_changed', 
+            null,
+            (error) => reject(error),
+            async () => {
+              const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+              resolve(downloadUrl);
+            }
+          );
+        });
+        
+        dataToSave.pdfUrl = url;
+        dataToSave.pdfName = dataToSave.pdfFile.name;
+      }
+      
+      // Remove file object before saving to Firestore
+      const { pdfFile, ...finalData } = dataToSave;
+      
+      if (finalData.type !== 'KM') {
+        delete finalData.kmSubtype;
+        delete finalData.contentId;
       }
       
       if (editingId) {
-        await onUpdate(editingId, dataToSave);
+        await onUpdate(editingId, finalData);
         setEditingId(null);
         setToast({ message: 'แก้ไขข้อมูลสำเร็จ', type: 'success' });
       } else {
-        await onAdd(dataToSave);
+        await onAdd(finalData);
         setToast({ message: 'บันทึกข้อมูลสำเร็จ', type: 'success' });
       }
       
@@ -803,7 +840,11 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
         contentId: '',
         title: '', 
         description: '', 
-        date: new Date().toISOString().split('T')[0] 
+        date: new Date().toISOString().split('T')[0],
+        pdfUrl: '',
+        pdfName: '',
+        pdfFile: null,
+        linkUrl: ''
       });
       // Show success feedback if needed, but usually the real-time sync is enough
     } catch (err: any) {
@@ -838,7 +879,11 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
       contentId: record.contentId || '',
       title: record.title,
       description: record.description || '',
-      date: record.date
+      date: record.date,
+      pdfUrl: record.pdfUrl || '',
+      pdfName: record.pdfName || '',
+      pdfFile: null,
+      linkUrl: record.linkUrl || ''
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -957,6 +1002,59 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
                 onChange={e => setFormData({ ...formData, description: e.target.value })}
               />
             </div>
+
+            {(formData.type === 'KM' || formData.type === 'ความคิดสร้างสรรค์') && (
+              <div className="md:col-span-2 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-widest opacity-50">แนบลิงก์เอกสาร (เช่น Google Drive / Canva)</label>
+                  <input 
+                    type="url"
+                    className="w-full p-4 bg-white rounded-xl border-2 border-slate-100 focus:border-violet-500 transition-all font-bold text-sm"
+                    placeholder="https://drive.google.com/..."
+                    value={formData.linkUrl}
+                    onChange={e => setFormData({ ...formData, linkUrl: e.target.value })}
+                  />
+                  <p className="text-[10px] text-slate-500">* แนะนำวิธีนี้สำหรับโปรไฟล์ขนาดใหญ่หรือเน็ตช้า จะช่วยให้บันทึกได้เร็วขึ้นมาก</p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-widest opacity-50">หรือ อัปโหลดไฟล์ PDF (ดั้งเดิม)</label>
+                  <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-xl border-2 border-dashed border-slate-200">
+                    <input 
+                      type="file"
+                      accept=".pdf"
+                      className="hidden"
+                      id="pdf-upload"
+                      onChange={e => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setFormData({ ...formData, pdfFile: file, pdfName: file.name });
+                        }
+                      }}
+                    />
+                    <label 
+                      htmlFor="pdf-upload"
+                      className="flex items-center gap-2 px-4 py-2 bg-white rounded-lg shadow-sm cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                      <FileText size={20} className="text-violet-600" />
+                      <span className="text-sm font-bold">{formData.pdfName || 'เลือกไฟล์ PDF'}</span>
+                    </label>
+                    {formData.pdfName && (
+                      <button 
+                        type="button"
+                        onClick={() => setFormData({ ...formData, pdfFile: null, pdfName: '', pdfUrl: '' })}
+                        className="text-xs text-red-500 font-bold hover:underline"
+                      >
+                        ลบไฟล์
+                      </button>
+                    )}
+                    {formData.pdfUrl && !formData.pdfFile && (
+                      <span className="text-[10px] opacity-40">(มีไฟล์ที่อัปโหลดไว้แล้ว)</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="md:col-span-2 flex gap-3">
               <button 
                 type="submit" 
@@ -1081,6 +1179,30 @@ function InnovationSection({ employees, records, onAdd, onUpdate, onDelete, isAd
                         )}
                       </div>
                       {record.description && <p className="text-sm mt-2 p-3 bg-slate-50 rounded-lg italic">{record.description}</p>}
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        {record.linkUrl && (
+                          <a 
+                            href={record.linkUrl} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-bold hover:bg-blue-100 transition-colors"
+                          >
+                            <ExternalLink size={14} />
+                            ลิงก์เอกสาร/ผลงาน
+                          </a>
+                        )}
+                        {record.pdfUrl && (
+                          <a 
+                            href={record.pdfUrl} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 px-3 py-1.5 bg-violet-50 text-violet-700 rounded-lg text-xs font-bold hover:bg-violet-100 transition-colors"
+                          >
+                            <FileText size={14} />
+                            ไฟล์ PDF
+                          </a>
+                        )}
+                      </div>
                     </div>
                   </div>
                   {isAdmin && (
@@ -1145,6 +1267,7 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
   });
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [imageUrls, setImageUrls] = useState<string[]>([]);
+  const [linkUrls, setLinkUrls] = useState<string[]>(['']);
   const [isUploading, setIsUploading] = useState(false);
   
   const groupEmployees = useMemo(() => {
@@ -1171,10 +1294,28 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
     }
   }, [employees]);
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const files = Array.from(e.target.files);
-      const newFiles = [...imageFiles, ...files].slice(0, 3); // Limit to 3 images
+      setToast({ message: "กำลังย่อขนาดรูปภาพเพื่อความรวดเร็ว...", type: 'info' });
+      
+      const compressedFiles = await Promise.all(files.map(async (file: File) => {
+        if (!file.type.startsWith('image/')) return file;
+        try {
+          const options = {
+            maxSizeMB: 0.2, // Aggressive compression (200KB)
+            maxWidthOrHeight: 1024,
+            useWebWorker: true,
+            initialQuality: 0.6
+          };
+          return await imageCompression(file, options) as File;
+        } catch (error) {
+          console.error("Compression error:", error);
+          return file;
+        }
+      })) as File[];
+
+      const newFiles = [...imageFiles, ...compressedFiles].slice(0, 3); // Limit to 3 images
       setImageFiles(newFiles);
       
       const newUrls = newFiles.map(file => URL.createObjectURL(file));
@@ -1190,6 +1331,23 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
     const newUrls = [...imageUrls];
     newUrls.splice(index, 1);
     setImageUrls(newUrls);
+  };
+
+  const handleAddLink = () => {
+    if (linkUrls.length < 3) {
+      setLinkUrls([...linkUrls, '']);
+    }
+  };
+
+  const handleLinkChange = (index: number, value: string) => {
+    const newLinks = [...linkUrls];
+    newLinks[index] = value;
+    setLinkUrls(newLinks);
+  };
+
+  const handleRemoveLink = (index: number) => {
+    const newLinks = linkUrls.filter((_, i) => i !== index);
+    setLinkUrls(newLinks.length ? newLinks : ['']);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1218,14 +1376,32 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
       const newFilesToUpload = imageFiles.filter((_, i) => !imageUrls[i].startsWith('http'));
 
       if (newFilesToUpload.length > 0) {
-        const uploadPromises = newFilesToUpload.map(async (file) => {
+        setToast({ message: `เริ่มการอัปโหลดรูปภาพ (0/${newFilesToUpload.length})...`, type: 'info' });
+        
+        const uploadedUrls: string[] = [];
+        for (let i = 0; i < newFilesToUpload.length; i++) {
+          const file = newFilesToUpload[i];
           const storageRef = ref(storage, `activities/${Date.now()}_${file.name}`);
-          const snapshot = await uploadBytes(storageRef, file);
-          return getDownloadURL(snapshot.ref);
-        });
-        const uploadedUrls = await Promise.all(uploadPromises);
+          const uploadTask = uploadBytesResumable(storageRef, file);
+          
+          setToast({ message: `กำลังอัปโหลดรูปภาพที่ ${i + 1}/${newFilesToUpload.length}...`, type: 'info' });
+          
+          const url = await new Promise<string>((resolve, reject) => {
+            uploadTask.on('state_changed', 
+              null,
+              (error) => reject(error),
+              async () => {
+                const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+                resolve(downloadUrl);
+              }
+            );
+          });
+          uploadedUrls.push(url);
+        }
         finalImageUrls = [...finalImageUrls, ...uploadedUrls];
       }
+
+      const finalLinkUrls = linkUrls.filter(url => url.trim() !== '');
 
       const recordsToSave = groupEmployees.map(emp => ({
         employeeId: emp.id,
@@ -1236,6 +1412,7 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
         reason: attendance[emp.id]?.reason || '',
         imageUrl: finalImageUrls[0] || '', // Keep for backward compatibility
         imageUrls: finalImageUrls,
+        linkUrls: finalLinkUrls,
         swapWithId: attendance[emp.id]?.status === 'สลับคู่' ? attendance[emp.id]?.swapWithId || null : null
       }));
 
@@ -1255,6 +1432,7 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
       });
       setImageFiles([]);
       setImageUrls([]);
+      setLinkUrls(['']);
       setAttendance(employees.reduce((acc, emp) => ({ ...acc, [emp.id]: { status: 'เข้าร่วม', reason: '' } }), {}));
     } catch (err: any) {
       console.error("External activity submit error:", err);
@@ -1286,6 +1464,8 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
     
     const initialUrls = first.imageUrls || (first.imageUrl ? [first.imageUrl] : []);
     setImageUrls(initialUrls);
+    const initialLinkUrls = first.linkUrls || [''];
+    setLinkUrls(initialLinkUrls);
     setImageFiles([]); // Reset files as they are already uploaded
     
     // Determine which group this belongs to
@@ -1372,42 +1552,73 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-xs font-bold uppercase tracking-widest opacity-50">รูปภาพการเข้าร่วมกิจกรรม (สูงสุด 3 รูป)</label>
-              <div className="flex flex-wrap gap-4 items-start">
-                {imageUrls.map((url, index) => (
-                  <div key={index} className="relative group/img w-40 h-32 bg-slate-50 rounded-2xl border-2 border-dashed border-black/5 flex items-center justify-center overflow-hidden">
-                    <img src={url} alt={`Preview ${index}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+            <div className="md:col-span-1 space-y-4">
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase tracking-widest opacity-50">รูปภาพการเข้าร่วมกิจกรรม (สูงสุด 3 รูป)</label>
+                <div className="flex flex-wrap gap-4 items-start">
+                  {imageUrls.map((url, index) => (
+                    <div key={index} className="relative group/img w-32 h-24 bg-slate-50 rounded-2xl border-2 border-dashed border-black/5 flex items-center justify-center overflow-hidden">
+                      <img src={url} alt={`Preview ${index}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      <button 
+                        type="button"
+                        onClick={() => removeImage(index)}
+                        className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover/img:opacity-100 transition-opacity"
+                      >
+                        <Plus size={14} className="rotate-45" />
+                      </button>
+                    </div>
+                  ))}
+                  
+                  {imageUrls.length < 3 && (
+                    <div className="relative group/img w-32 h-24 bg-slate-50 rounded-2xl border-2 border-dashed border-black/5 flex items-center justify-center overflow-hidden hover:bg-black/5 transition-colors">
+                      <div className="text-center p-4">
+                        <Plus size={20} className="mx-auto opacity-20 mb-1" />
+                        <p className="text-[8px] opacity-40">เพิ่มรูปภาพ</p>
+                      </div>
+                      <input 
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={handleImageChange}
+                        className="absolute inset-0 opacity-0 cursor-pointer"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase tracking-widest opacity-50">หรือ วางลิงก์รูปภาพกิจกรรม (แนะนำสำหรับเน็ตช้า)</label>
+                <div className="space-y-2">
+                  {linkUrls.map((url, idx) => (
+                    <div key={idx} className="flex gap-2">
+                      <input 
+                        type="url"
+                        className="flex-1 p-3 bg-white rounded-xl border-2 border-slate-100 focus:border-violet-500 transition-all font-bold text-[10px]"
+                        placeholder="วางลิงก์รูปภาพจาก Google Drive..."
+                        value={url}
+                        onChange={e => handleLinkChange(idx, e.target.value)}
+                      />
+                      {linkUrls.length > 1 && (
+                        <button 
+                          type="button"
+                          onClick={() => handleRemoveLink(idx)}
+                          className="p-2 text-red-500 hover:bg-red-50 rounded-xl"
+                        >
+                          <Plus size={18} className="rotate-45" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  {linkUrls.length < 3 && (
                     <button 
                       type="button"
-                      onClick={() => removeImage(index)}
-                      className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover/img:opacity-100 transition-opacity"
+                      onClick={handleAddLink}
+                      className="text-[10px] font-bold text-violet-600 hover:underline flex items-center gap-1"
                     >
-                      <Plus size={14} className="rotate-45" />
+                      + เพิ่มอีกลิงก์
                     </button>
-                  </div>
-                ))}
-                
-                {imageUrls.length < 3 && (
-                  <div className="relative group/img w-40 h-32 bg-slate-50 rounded-2xl border-2 border-dashed border-black/5 flex items-center justify-center overflow-hidden hover:bg-black/5 transition-colors">
-                    <div className="text-center p-4">
-                      <Plus size={24} className="mx-auto opacity-20 mb-1" />
-                      <p className="text-[10px] opacity-40">เพิ่มรูปภาพ</p>
-                    </div>
-                    <input 
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      onChange={handleImageChange}
-                      className="absolute inset-0 opacity-0 cursor-pointer"
-                    />
-                  </div>
-                )}
-                
-                <div className="flex-1 min-w-[200px] text-[10px] opacity-40 space-y-1 py-2">
-                  <p>• รองรับไฟล์รูปภาพ (JPG, PNG, WEBP)</p>
-                  <p>• สามารถแนบรูปภาพได้สูงสุด 3 รูป</p>
-                  <p>• แนะนำขนาดไม่เกิน 5MB ต่อรูป</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -1565,6 +1776,18 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
                           className="w-12 h-12 rounded-lg overflow-hidden border border-black/5 hover:scale-105 transition-transform"
                         >
                           <img src={url} alt={`Activity ${idx}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        </a>
+                      ))}
+                      {(group[0].linkUrls || []).map((url, idx) => (
+                        <a 
+                          key={`link-${idx}`}
+                          href={url} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="w-12 h-12 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 border border-blue-100 hover:bg-blue-100 transition-colors"
+                          title="ดูลิงก์รูปภาพภายนอก"
+                        >
+                          <ExternalLink size={18} />
                         </a>
                       ))}
                     </div>
@@ -2302,7 +2525,10 @@ function ReportSection({ state }: { state: AppState }) {
     const uniqueExternalCount = Array.from(new Set(externalActivities.map(r => `${r.date}|${r.title}`))).length;
 
     return state.employees.map(emp => {
-      const records = filteredData.activities.filter(r => r.employeeId === emp.id && (r.status === 'เข้าร่วม' || r.status === 'อื่นๆ' || r.status === 'สลับคู่'));
+      const records = filteredData.activities.filter(r => 
+        (r.employeeId === emp.id && (r.status === 'เข้าร่วม' || r.status === 'อื่นๆ')) ||
+        (r.status === 'สลับคู่' && r.swapWithId === emp.id)
+      );
       const activityCount = records.filter(r => r.type === 'กิจกรรม').length;
       const externalCount = records.filter(r => r.type === 'กิจกรรมภายนอก').length;
       
@@ -2354,7 +2580,7 @@ function ReportSection({ state }: { state: AppState }) {
   }, [innovationSummary, activitySummary, leaveSummary, state.employees]);
 
   const totalInnovations = filteredData.innovations.length;
-  const totalActivitiesJoined = filteredData.activities.filter(r => r.status === 'เข้าร่วม' || r.status === 'อื่นๆ').length;
+  const totalActivitiesJoined = filteredData.activities.filter(r => r.status === 'เข้าร่วม' || r.status === 'อื่นๆ' || r.status === 'สลับคู่').length;
   const totalLeaves = filteredData.leaves.length;
 
   const exportComprehensive = () => {
