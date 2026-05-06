@@ -2573,25 +2573,50 @@ function ReportSection({ state }: { state: AppState }) {
   const [rangeStart, setRangeStart] = useState(new Date().toISOString().substring(0, 7)); // YYYY-MM
   const [rangeEnd, setRangeEnd] = useState(new Date().toISOString().substring(0, 7)); // YYYY-MM
 
+  // State to hold the filters that are currently showing in the UI
+  const [activeFilter, setActiveFilter] = useState({
+    type: filterType,
+    selectedDate,
+    rangeStart,
+    rangeEnd
+  });
+
+  // Sync activeFilter with initial state or when state data changes if needed
+  // However, usually it's better to just update it on button click or mount
+  const handleApplyFilter = () => {
+    setActiveFilter({
+      type: filterType,
+      selectedDate,
+      rangeStart,
+      rangeEnd
+    });
+  };
+
   const filteredData = useMemo(() => {
-    const d = new Date(selectedDate);
+    const { type, selectedDate: selDate, rangeStart: rs, rangeEnd: re } = activeFilter;
+    const d = new Date(selDate);
     const targetDay = d.getDate();
     const targetMonth = d.getMonth();
     const targetYear = d.getFullYear();
 
     const isMatch = (dateStr: string) => {
-      if (filterType === 'all') return true;
+      if (type === 'all') return true;
+      if (!dateStr) return false;
+
+      const recMonth = dateStr.substring(0, 7); // Get "YYYY-MM" from "YYYY-MM-DD"
+      
+      if (type === 'range') {
+        return recMonth >= rs && recMonth <= re;
+      }
+
       const recordDate = new Date(dateStr);
       const recYear = recordDate.getFullYear();
-      const recMonth = recordDate.getMonth();
-      const recDateOnly = recordDate.toISOString().substring(0, 7); // YYYY-MM
+      const recMonthIdx = recordDate.getMonth();
 
-      if (filterType === 'year') return recYear === targetYear;
-      if (filterType === 'month') return recYear === targetYear && recMonth === targetMonth;
-      if (filterType === 'day') return recYear === targetYear && recMonth === targetMonth && recordDate.getDate() === targetDay;
-      if (filterType === 'range') {
-        return recDateOnly >= rangeStart && recDateOnly <= rangeEnd;
-      }
+      if (type === 'year') return recYear === targetYear;
+      if (type === 'month') return recYear === targetYear && recMonthIdx === targetMonth;
+      if (type === 'day') return recYear === targetYear && recMonthIdx === targetMonth && recordDate.getDate() === targetDay;
+      
       return true;
     };
 
@@ -2600,7 +2625,7 @@ function ReportSection({ state }: { state: AppState }) {
       activities: state.activityRecords.filter(r => isMatch(r.date)),
       leaves: state.leaveRecords.filter(r => isMatch(r.startDate) || isMatch(r.endDate)),
     };
-  }, [state, filterType, selectedDate]);
+  }, [state.innovationRecords, state.activityRecords, state.leaveRecords, activeFilter]);
 
   const innovationSummary = useMemo(() => {
     return state.employees.map(emp => {
@@ -2790,6 +2815,12 @@ function ReportSection({ state }: { state: AppState }) {
           )}
           
           <div className="flex gap-2">
+            <button 
+              onClick={handleApplyFilter} 
+              className="bg-white text-violet-600 border-2 border-violet-600 px-6 py-2.5 rounded-xl text-xs font-bold hover:bg-violet-50 transition-all flex items-center gap-2"
+            >
+              <Search size={16} /> ประมวลผลข้อมูล
+            </button>
             <button onClick={exportComprehensive} className="bg-violet-600 text-white px-6 py-2.5 rounded-xl text-xs font-bold hover:bg-violet-700 transition-all shadow-lg shadow-violet-600/20 flex items-center gap-2">
               <Download size={16} /> ส่งออกข้อมูลสรุป (CSV)
             </button>
