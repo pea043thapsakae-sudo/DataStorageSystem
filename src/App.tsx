@@ -2249,12 +2249,24 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
       }
 
       if (editingId) {
-        await onUpdate(editingId, formData);
+        const finalData = { ...formData, lateDates: formData.type === 'มาสาย' ? lateDates : [] } as any;
+        if (formData.type === 'มาสาย' && lateDates.length > 0) {
+          const sorted = [...lateDates].sort();
+          finalData.startDate = sorted[0];
+          finalData.endDate = sorted[sorted.length - 1];
+          // Only append "มาสายวันที่" if it's not already there or if we want to refresh it
+          const cleanReason = formData.reason.replace(/^มาสายวันที่: .*? - /, '').replace(/^มาสายวันที่: .*?$/, '');
+          finalData.reason = `มาสายวันที่: ${lateDates.map(d => new Date(d).toLocaleDateString('th-TH')).join(', ')}${cleanReason ? ` - ${cleanReason}` : ''}`;
+        }
+        await onUpdate(editingId, finalData);
         setEditingId(null);
         setToast({ message: 'แก้ไขข้อมูลการลาสำเร็จ', type: 'success' });
       } else {
-        const finalData = { ...formData };
+        const finalData = { ...formData, lateDates: formData.type === 'มาสาย' ? lateDates : [] } as any;
         if (formData.type === 'มาสาย' && lateDates.length > 0) {
+          const sorted = [...lateDates].sort();
+          finalData.startDate = sorted[0];
+          finalData.endDate = sorted[sorted.length - 1];
           finalData.reason = `มาสายวันที่: ${lateDates.map(d => new Date(d).toLocaleDateString('th-TH')).join(', ')}${formData.reason ? ` - ${formData.reason}` : ''}`;
         }
         await onAdd(finalData);
@@ -2301,6 +2313,7 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
       endDate: record.endDate,
       duration: record.duration || '1 วัน'
     });
+    setLateDates(record.lateDates || []);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -2445,6 +2458,7 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
                   disabled={isSaving}
                   onClick={() => {
                     setEditingId(null);
+                    setLateDates([]);
                     setFormData({ 
                       employeeId: employees[0]?.id || 1, 
                       type: 'ลาป่วย', 
@@ -2506,14 +2520,23 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
                       <div className="flex items-center gap-2">
                         <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
                           record.type === 'ลาป่วย' ? 'bg-red-100 text-red-700' :
-                          record.type === 'ลากิจ' ? 'bg-blue-100 text-blue-700' :
-                          record.type === 'มาสาย' ? 'bg-yellow-100 text-yellow-700' : 'bg-purple-100 text-purple-700'
+                          record.type === 'ลากิจ' ? 'bg-orange-100 text-orange-700' :
+                          record.type === 'มาสาย' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'
                         }`}>{record.type}</span>
                         <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">{record.duration || '1 วัน'}</span>
                         <span className="text-xs opacity-50">{record.startDate === record.endDate ? record.startDate : `${record.startDate} ถึง ${record.endDate}`}</span>
                       </div>
-                      <h4 className="font-bold">{record.reason}</h4>
-                      <p className="text-xs opacity-50">{emp?.name}</p>
+                      <h4 className="font-bold text-slate-900">{emp?.name || 'ไม่พบพนักงาน'}</h4>
+                      {record.type === 'มาสาย' ? (
+                        <p className="text-sm opacity-60 mt-0.5">
+                          {record.reason && record.reason.startsWith('มาสายวันที่:') 
+                            ? record.reason 
+                            : `มาสายวันที่: ${record.startDate === record.endDate ? record.startDate : `${record.startDate} ถึง ${record.endDate}`}${record.reason ? ` - ${record.reason}` : ''}`
+                          }
+                        </p>
+                      ) : (
+                        record.reason && <p className="text-sm opacity-60 mt-0.5">{record.reason}</p>
+                      )}
                     </div>
                   </div>
                   {isAdmin && (
@@ -2545,8 +2568,10 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
 }
 
 function ReportSection({ state }: { state: AppState }) {
-  const [filterType, setFilterType] = useState<'day' | 'month' | 'year' | 'all'>('all');
+  const [filterType, setFilterType] = useState<'day' | 'month' | 'range' | 'year' | 'all'>('all');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [rangeStart, setRangeStart] = useState(new Date().toISOString().substring(0, 7)); // YYYY-MM
+  const [rangeEnd, setRangeEnd] = useState(new Date().toISOString().substring(0, 7)); // YYYY-MM
 
   const filteredData = useMemo(() => {
     const d = new Date(selectedDate);
@@ -2557,9 +2582,16 @@ function ReportSection({ state }: { state: AppState }) {
     const isMatch = (dateStr: string) => {
       if (filterType === 'all') return true;
       const recordDate = new Date(dateStr);
-      if (filterType === 'year') return recordDate.getFullYear() === targetYear;
-      if (filterType === 'month') return recordDate.getFullYear() === targetYear && recordDate.getMonth() === targetMonth;
-      if (filterType === 'day') return recordDate.getFullYear() === targetYear && recordDate.getMonth() === targetMonth && recordDate.getDate() === targetDay;
+      const recYear = recordDate.getFullYear();
+      const recMonth = recordDate.getMonth();
+      const recDateOnly = recordDate.toISOString().substring(0, 7); // YYYY-MM
+
+      if (filterType === 'year') return recYear === targetYear;
+      if (filterType === 'month') return recYear === targetYear && recMonth === targetMonth;
+      if (filterType === 'day') return recYear === targetYear && recMonth === targetMonth && recordDate.getDate() === targetDay;
+      if (filterType === 'range') {
+        return recDateOnly >= rangeStart && recDateOnly <= rangeEnd;
+      }
       return true;
     };
 
@@ -2694,6 +2726,7 @@ function ReportSection({ state }: { state: AppState }) {
                 { id: 'all', label: 'ทั้งหมด' },
                 { id: 'day', label: 'รายวัน' },
                 { id: 'month', label: 'รายเดือน' },
+                { id: 'range', label: 'ช่วงรายเดือน' },
                 { id: 'year', label: 'รายปี' },
               ].map(f => (
                 <button
@@ -2709,7 +2742,29 @@ function ReportSection({ state }: { state: AppState }) {
             </div>
           </div>
 
-          {filterType !== 'all' && (
+          {filterType === 'range' ? (
+            <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold uppercase opacity-50">ตั้งแต่เดือน</label>
+                <input 
+                  type="month"
+                  className="px-4 py-2 rounded-xl bg-white border border-black/5 text-xs font-bold focus:ring-2 focus:ring-violet-500"
+                  value={rangeStart}
+                  onChange={e => setRangeStart(e.target.value)}
+                />
+              </div>
+              <div className="mt-4 opacity-30">—</div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold uppercase opacity-50">ถึงเดือน</label>
+                <input 
+                  type="month"
+                  className="px-4 py-2 rounded-xl bg-white border border-black/5 text-xs font-bold focus:ring-2 focus:ring-violet-500"
+                  value={rangeEnd}
+                  onChange={e => setRangeEnd(e.target.value)}
+                />
+              </div>
+            </div>
+          ) : filterType !== 'all' && (
             <div className="flex flex-col gap-1">
               <label className="text-[10px] font-bold uppercase opacity-50">
                 {filterType === 'day' ? 'เลือกวันที่' : filterType === 'month' ? 'เลือกเดือน/ปี' : 'เลือกปี'}

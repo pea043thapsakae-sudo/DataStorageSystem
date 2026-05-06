@@ -44,6 +44,7 @@ export interface LeaveRecord {
   type: 'ลาป่วย' | 'ลากิจ' | 'มาสาย' | 'ราชการ';
   reason: string;
   duration: string;
+  lateDates?: string[];
 }
 
 export interface Admin {
