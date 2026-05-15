@@ -2223,6 +2223,7 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteA
   const [isSaving, setIsSaving] = useState<string | null>(null); // employeeId being saved
   const [searchTerm, setSearchTerm] = useState('');
   const [confirmReset, setConfirmReset] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<{ empId: number, type: string } | null>(null);
 
   // Daily attendance for selected date
   const dailyAttendance = useMemo(() => {
@@ -2235,6 +2236,17 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteA
 
   const handleStatusChange = async (empId: number, type: typeof LEAVE_TYPES[number]) => {
     if (!isAdmin) return;
+
+    if (confirmAction?.empId !== empId || confirmAction?.type !== type) {
+      setConfirmAction({ empId, type });
+      // Auto clear confirmation after 3 seconds
+      setTimeout(() => {
+        setConfirmAction(prev => (prev?.empId === empId && prev?.type === type) ? null : prev);
+      }, 3000);
+      return;
+    }
+
+    setConfirmAction(null);
     setIsSaving(empId.toString());
     
     try {
@@ -2246,7 +2258,7 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteA
         startDate: selectedDate,
         endDate: selectedDate,
         duration: '1 วัน',
-        reason: type === 'มาปกติ' ? 'มาทำงานปกติ' : type,
+        reason: type,
         lateDates: type === 'มาสาย' ? [selectedDate] : []
       };
 
@@ -2270,7 +2282,6 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteA
 
   const getStatusIcon = (type: string) => {
     switch (type) {
-      case 'มาปกติ': return <CheckCircle2 size={16} />;
       case 'มาสาย': return <Clock size={16} />;
       case 'ลาป่วย': return <AlertCircle size={16} />;
       case 'ลากิจ': return <User size={16} />;
@@ -2283,7 +2294,6 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteA
     if (!active) return "bg-slate-50 text-slate-400 hover:bg-slate-100";
     
     switch (type) {
-      case 'มาปกติ': return "bg-green-50 text-green-600 border-green-100 ring-1 ring-green-200";
       case 'มาสาย': return "bg-amber-50 text-amber-600 border-amber-100 ring-1 ring-amber-200";
       case 'ลาป่วย': return "bg-rose-50 text-rose-600 border-rose-100 ring-1 ring-rose-200";
       case 'ลากิจ': return "bg-blue-50 text-blue-600 border-blue-100 ring-1 ring-blue-200";
@@ -2398,16 +2408,27 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteA
                 <div className="flex flex-wrap gap-1.5 md:gap-2">
                   {LEAVE_TYPES.map(type => {
                     const isSelected = currentRecord?.type === type;
+                    const isConfirming = confirmAction?.empId === emp.id && confirmAction?.type === type;
+                    
                     return (
                       <button
                         key={type}
                         onClick={() => handleStatusChange(emp.id, type)}
-                        className={`group relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all ${getStatusStyle(type, isSelected)}`}
+                        className={`group relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all ${isConfirming ? 'bg-orange-500 text-white ring-2 ring-orange-200' : getStatusStyle(type, isSelected)}`}
                         disabled={!isAdmin || isActive}
                       >
-                        {getStatusIcon(type)}
-                        <span>{type}</span>
-                        {isSelected && (
+                        {isConfirming ? (
+                          <div className="flex items-center gap-1">
+                            <CheckCircle2 size={12} className="text-white" />
+                            <span className="whitespace-nowrap">คลิกยืนยัน</span>
+                          </div>
+                        ) : (
+                          <>
+                            {getStatusIcon(type)}
+                            <span>{type}</span>
+                          </>
+                        )}
+                        {isSelected && !isConfirming && (
                           <motion.div 
                             layoutId={`active-dot-${emp.id}`}
                             className="absolute -top-1 -right-1 w-4 h-4 bg-white border-2 border-green-500 rounded-full flex items-center justify-center z-10"
@@ -2436,9 +2457,10 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteA
           </div>
           <div className="flex flex-wrap justify-center gap-2">
             {[
-              { label: 'มาปกติ', color: 'bg-green-500', count: (Object.values(dailyAttendance) as (LeaveRecord | null)[]).filter(r => r?.type === 'มาปกติ').length },
               { label: 'มาสาย', color: 'bg-amber-500', count: (Object.values(dailyAttendance) as (LeaveRecord | null)[]).filter(r => r?.type === 'มาสาย').length },
-              { label: 'ลากิจ/ลาป่วย', color: 'bg-rose-500', count: (Object.values(dailyAttendance) as (LeaveRecord | null)[]).filter(r => r?.type === 'ลากิจ' || r?.type === 'ลาป่วย').length },
+              { label: 'ลากิจ', color: 'bg-blue-500', count: (Object.values(dailyAttendance) as (LeaveRecord | null)[]).filter(r => r?.type === 'ลากิจ').length },
+              { label: 'ลาป่วย', color: 'bg-rose-500', count: (Object.values(dailyAttendance) as (LeaveRecord | null)[]).filter(r => r?.type === 'ลาป่วย').length },
+              { label: 'ราชการ', color: 'bg-indigo-500', count: (Object.values(dailyAttendance) as (LeaveRecord | null)[]).filter(r => r?.type === 'ราชการ').length },
             ].map(stat => (
               <div key={stat.label} className="bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-xl flex items-center gap-2">
                 <div className={`w-1.5 h-1.5 rounded-full ${stat.color}`} />
@@ -2572,10 +2594,8 @@ function ReportSection({ state }: { state: AppState }) {
       const business = sumDays('ลากิจ');
       const late = sumDays('มาสาย');
       const official = sumDays('ราชการ');
-      const absent = sumDays('ขาดงาน');
-      const normal = sumDays('มาปกติ');
       
-      return { ...emp, sick, business, late, official, absent, normal, total: sick + business + late + official + absent };
+      return { ...emp, sick, business, late, official, total: sick + business + late + official };
     });
   }, [filteredData.leaves, state.employees]);
 
@@ -2633,8 +2653,7 @@ function ReportSection({ state }: { state: AppState }) {
         sick: leave?.sick || 0,
         business: leave?.business || 0,
         late: leave?.late || 0,
-        official: leave?.official || 0,
-        absent: leave?.absent || 0
+        official: leave?.official || 0
       };
     });
   }, [innovationSummary, activitySummary, leaveSummary, state.employees]);
@@ -2790,7 +2809,7 @@ function ReportSection({ state }: { state: AppState }) {
                       <th className="p-4 text-[10px] font-bold uppercase tracking-widest opacity-50 sticky left-0 bg-black/10 z-20" rowSpan={2}>ชื่อ-นามสกุล</th>
                       <th className="p-2 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center border-l border-black/5" colSpan={4}>งานนวัตกรรม / KM</th>
                       <th className="p-2 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center border-l border-black/5" colSpan={2}>กิจกรรม</th>
-                      <th className="p-2 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center border-l border-black/5 font-bold text-red-600" colSpan={5}>วันหยุดวันลา / มาสาย</th>
+                      <th className="p-2 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center border-l border-black/5 font-bold text-red-600" colSpan={4}>วันหยุดวันลา / มาสาย</th>
                     </tr>
                     <tr className="bg-black/5">
                       <th className="px-2 py-3 text-[9px] font-bold uppercase text-center border-l border-black/5 bg-black/[0.02]">นวัตกรรม</th>
@@ -2805,7 +2824,6 @@ function ReportSection({ state }: { state: AppState }) {
                       <th className="px-2 py-3 text-[9px] font-bold uppercase text-center text-red-600 bg-red-50/30">ลากิจ</th>
                       <th className="px-2 py-3 text-[9px] font-bold uppercase text-center text-red-600 bg-red-50/30">มาสาย</th>
                       <th className="px-2 py-3 text-[9px] font-bold uppercase text-center text-red-600 bg-red-50/30">ราชการ</th>
-                      <th className="px-2 py-3 text-[9px] font-bold uppercase text-center text-red-600 bg-red-50/30">ขาดงาน</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2825,7 +2843,6 @@ function ReportSection({ state }: { state: AppState }) {
                         <td className="p-2 text-center text-sm text-red-600 font-medium">{row.business || '-'}</td>
                         <td className="p-2 text-center text-sm text-red-600 font-medium">{row.late || '-'}</td>
                         <td className="p-2 text-center text-sm text-red-600 font-medium">{row.official || '-'}</td>
-                        <td className="p-2 text-center text-sm text-red-600 font-medium">{row.absent || '-'}</td>
                       </tr>
                     ))}
                   </tbody>
