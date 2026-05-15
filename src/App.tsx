@@ -248,7 +248,10 @@ function LoginModal({ isOpen, onClose, onLogin, admins, firebaseUser, setToast }
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'innovation' | 'activity' | 'external' | 'leave' | 'report' | 'admin'>('innovation');
-  const [currentUser, setCurrentUser] = useState<Admin | null>(null);
+  const [currentUser, setCurrentUser] = useState<Admin | null>(() => {
+    const saved = localStorage.getItem('admin_session');
+    return saved ? JSON.parse(saved) : null;
+  });
   const [firebaseUser, setFirebaseUser] = useState(auth.currentUser);
   const [showLogin, setShowLogin] = useState(false);
   const [isAuthReady, setIsAuthReady] = useState(false);
@@ -338,11 +341,13 @@ export default function App() {
 
   const handleLogin = (admin: Admin) => {
     setCurrentUser(admin);
+    localStorage.setItem('admin_session', JSON.stringify(admin));
     setShowLogin(false);
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
+    localStorage.removeItem('admin_session');
     if (activeTab === 'admin') setActiveTab('innovation');
   };
 
@@ -487,6 +492,20 @@ export default function App() {
       await deleteDoc(doc(db, collectionName, id));
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `${collectionName}/${id}`);
+    }
+  };
+
+  const clearAllLeaveRecords = async () => {
+    if (!isAdmin) return;
+    const batch = writeBatch(db);
+    state.leaveRecords.forEach(record => {
+      batch.delete(doc(db, 'leaveRecords', record.id));
+    });
+    try {
+      await batch.commit();
+      setToast({ message: 'ลบข้อมูลวันลาทั้งหมดเรียบร้อยแล้ว', type: 'success' });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, 'leaveRecords (batch)');
     }
   };
 
@@ -691,6 +710,7 @@ export default function App() {
                   onAdd={addLeave} 
                   onUpdate={updateLeave}
                   onDelete={(id) => deleteRecord('leaveRecords', id)}
+                  onDeleteAll={clearAllLeaveRecords}
                   isAdmin={isAdmin}
                   setToast={setToast}
                 />
@@ -2198,10 +2218,11 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
   );
 }
 
-function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, setToast }: { employees: Employee[], records: LeaveRecord[], onAdd: (r: any) => Promise<void>, onUpdate: (id: string, r: any) => Promise<void>, onDelete: (id: string) => Promise<void>, isAdmin: boolean, setToast: (t: any) => void }) {
+function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteAll, isAdmin, setToast }: { employees: Employee[], records: LeaveRecord[], onAdd: (r: any) => Promise<void>, onUpdate: (id: string, r: any) => Promise<void>, onDelete: (id: string) => Promise<void>, onDeleteAll: () => Promise<void>, isAdmin: boolean, setToast: (t: any) => void }) {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [isSaving, setIsSaving] = useState<string | null>(null); // employeeId being saved
   const [searchTerm, setSearchTerm] = useState('');
+  const [confirmReset, setConfirmReset] = useState(false);
 
   // Daily attendance for selected date
   const dailyAttendance = useMemo(() => {
@@ -2296,16 +2317,49 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, 
             />
           </div>
           
-          <div className="bg-white p-1 rounded-xl border border-black/5 flex items-center gap-2 pr-3">
-            <div className="w-8 h-8 rounded-lg bg-violet-600 flex items-center justify-center text-white shrink-0">
-              <Calendar size={16} />
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <div className="flex items-center gap-1">
+                {confirmReset ? (
+                  <div className="flex items-center gap-1 bg-rose-50 p-1 rounded-xl border border-rose-200">
+                    <button
+                      onClick={() => {
+                        onDeleteAll();
+                        setConfirmReset(false);
+                      }}
+                      className="px-3 py-1.5 bg-rose-600 text-white text-[10px] font-bold rounded-lg hover:bg-rose-700 transition-colors cursor-pointer"
+                    >
+                      ยืนยันล้างข้อมูล
+                    </button>
+                    <button
+                      onClick={() => setConfirmReset(false)}
+                      className="px-3 py-1.5 bg-white text-rose-600 text-[10px] font-bold rounded-lg border border-rose-200 hover:bg-rose-50 transition-colors cursor-pointer"
+                    >
+                      ยกเลิก
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmReset(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-rose-600 text-white hover:bg-rose-700 rounded-xl transition-all shadow-lg shadow-rose-200 cursor-pointer shrink-0"
+                  >
+                    <Trash2 size={18} />
+                    <span className="text-xs font-bold whitespace-nowrap">ล้างข้อมูลทั้งหมด</span>
+                  </button>
+                )}
+              </div>
+            )}
+            <div className="bg-white p-1 rounded-xl border border-black/5 flex items-center gap-2 pr-3">
+              <div className="w-8 h-8 rounded-lg bg-violet-600 flex items-center justify-center text-white shrink-0">
+                <Calendar size={16} />
+              </div>
+              <input 
+                type="date"
+                className="border-none focus:ring-0 font-bold text-xs bg-transparent p-0"
+                value={selectedDate}
+                onChange={e => setSelectedDate(e.target.value)}
+              />
             </div>
-            <input 
-              type="date"
-              className="border-none focus:ring-0 font-bold text-xs bg-transparent p-0"
-              value={selectedDate}
-              onChange={e => setSelectedDate(e.target.value)}
-            />
           </div>
         </div>
       </header>
@@ -2602,8 +2656,7 @@ function ReportSection({ state }: { state: AppState }) {
       'ลาป่วย': s.sick,
       'ลากิจ': s.business,
       'มาสาย': s.late,
-      'ราชการ': s.official,
-      'ขาดงาน': s.absent
+      'ราชการ': s.official
     }));
     exportToCSV(data, `สรุปรายบุคคล_${filterType}_${new Date().toLocaleDateString()}`);
   };
