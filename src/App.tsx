@@ -128,15 +128,11 @@ function LoginModal({ isOpen, onClose, onLogin, admins, firebaseUser, setToast }
     setIsLoggingIn(true);
     setError('');
     
-    // Normalize Thai numerals to Arabic numerals
     const normalize = (str: string) => str.replace(/[๐-๙]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0x0E50 + 48));
-    
     const cleanUsername = normalize(username.trim());
     const cleanPassword = normalize(password.trim());
     
-    // Hardcoded fallback for the primary admin
     const defaultAdmin = { id: '9012844', password: 'PEATSG043', name: 'แอดมินหลัก' };
-    
     let admin = admins.find(a => a.id === cleanUsername && a.password === cleanPassword);
     
     if (!admin && cleanUsername === defaultAdmin.id && cleanPassword === defaultAdmin.password) {
@@ -146,7 +142,6 @@ function LoginModal({ isOpen, onClose, onLogin, admins, firebaseUser, setToast }
     if (admin) {
       try {
         setIsLoggingIn(true);
-        // Required for Firestore to work with standard secure rules
         await loginAnonymously();
         onLogin(admin);
         setUsername('');
@@ -155,92 +150,132 @@ function LoginModal({ isOpen, onClose, onLogin, admins, firebaseUser, setToast }
         onClose();
       } catch (err: any) {
         console.error("Auth error:", err);
-        setError('ไม่สามารถเปิดระบบบันทึกข้อมูลได้ (Auth Error). กรุณาเปิด "ไม่ระบุตัวตน (Anonymous)" ใน Firebase Console > Authentication > Sign-in method');
+        setError('ไม่สามารถเชื่อมต่อระบบได้ กรุณาลองใหม่อีกครั้ง');
       }
     } else {
-      setError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง');
+      setError('รหัสพนักงานหรือรหัสผ่านไม่ถูกต้อง');
     }
     setIsLoggingIn(false);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-violet-950/40 backdrop-blur-md">
       <motion.div 
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl space-y-6"
+        initial={{ opacity: 0, y: 20, scale: 0.95 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        className="bg-white rounded-[2.5rem] overflow-hidden max-w-md w-full shadow-[0_32px_64px_-16px_rgba(46,16,101,0.3)] relative"
       >
-        <div className="text-center space-y-2">
-          <div className="w-16 h-16 bg-violet-100 text-violet-600 rounded-2xl flex items-center justify-center mx-auto">
-            <Lock size={32} />
+        {/* Decorative background elements */}
+        <div className="absolute top-0 right-0 w-32 h-32 bg-violet-100 rounded-full -mr-16 -mt-16 opacity-50 blur-2xl" />
+        <div className="absolute bottom-0 left-0 w-32 h-32 bg-orange-100 rounded-full -ml-16 -mb-16 opacity-50 blur-2xl" />
+        
+        <div className="p-8 md:p-10 relative">
+          <div className="text-center space-y-4 mb-8">
+            <div className="w-20 h-20 bg-gradient-to-br from-violet-600 to-violet-800 text-white rounded-3xl flex items-center justify-center mx-auto shadow-xl shadow-violet-200 rotate-6 hover:rotate-0 transition-transform duration-300">
+              <Shield size={40} className="drop-shadow-lg" />
+            </div>
+            
+            <div className="space-y-1">
+              <h3 className="text-2xl font-black text-violet-900 tracking-tight leading-tight">
+                ระบบบันทึกข้อมูลพนักงาน
+                <span className="block text-violet-500 text-lg font-bold">(Employee Record System)</span>
+              </h3>
+              <p className="text-orange-500 font-bold text-base">การไฟฟ้าส่วนภูมิภาคสาขาทับสะแก</p>
+            </div>
           </div>
-          <h3 className="text-2xl font-bold">เข้าสู่ระบบแอดมิน (v2)</h3>
-          <p className="text-sm opacity-50">กรุณาเข้าสู่ระบบเพื่อจัดการข้อมูล (หากเข้าไม่ได้กรุณากด Refresh หน้าเว็บบราวเซอร์)</p>
-        </div>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold uppercase tracking-widest opacity-50">Admin ID</label>
-            <input 
-              type="text"
-              required
-              placeholder="รหัสพนักงาน"
-              className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500"
-              value={username}
-              onChange={e => setUsername(e.target.value)}
-              disabled={isLoggingIn}
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold uppercase tracking-widest opacity-50">รหัสผ่าน</label>
-            <div className="relative">
-              <input 
-                type={showPassword ? "text" : "password"}
-                required
-                className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500 pr-10"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                disabled={isLoggingIn}
-              />
-              <button 
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-black/20 hover:text-black/50"
+
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="space-y-2">
+              <label className="text-[11px] font-black uppercase tracking-[0.15em] text-violet-400 pl-1">รหัสพนักงาน (Admin ID)</label>
+              <div className="relative group">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-violet-300 group-focus-within:text-violet-600 transition-colors">
+                  <UserCircle size={20} />
+                </div>
+                <input 
+                  type="text"
+                  required
+                  placeholder="ป้อนรหัสพนักงาน 7 หลัก"
+                  className="w-full pl-11 pr-4 py-4 rounded-2xl bg-violet-50 border-2 border-transparent focus:border-violet-500 focus:bg-white focus:ring-0 transition-all outline-none text-violet-900 font-medium placeholder:text-violet-300"
+                  value={username}
+                  onChange={e => setUsername(e.target.value)}
+                  disabled={isLoggingIn}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[11px] font-black uppercase tracking-[0.15em] text-violet-400 pl-1">รหัสผ่าน</label>
+              <div className="relative group">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-violet-300 group-focus-within:text-violet-600 transition-colors">
+                  <Lock size={20} />
+                </div>
+                <input 
+                  type={showPassword ? "text" : "password"}
+                  required
+                  placeholder="••••••••"
+                  className="w-full pl-11 pr-12 py-4 rounded-2xl bg-violet-50 border-2 border-transparent focus:border-violet-500 focus:bg-white focus:ring-0 transition-all outline-none text-violet-900 font-medium placeholder:text-violet-300"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  disabled={isLoggingIn}
+                />
+                <button 
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center text-violet-300 hover:text-violet-600 transition-colors"
+                >
+                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                </button>
+              </div>
+            </div>
+
+            {error && (
+              <motion.div 
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="p-4 rounded-2xl bg-rose-50 border border-rose-100 flex items-center gap-3"
               >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                <div className="w-8 h-8 rounded-lg bg-rose-500 text-white flex items-center justify-center shrink-0">
+                  <AlertCircle size={18} />
+                </div>
+                <p className="text-xs text-rose-600 font-bold leading-tight">{error}</p>
+              </motion.div>
+            )}
+
+            <div className="flex flex-col gap-4 pt-4">
+              <button 
+                type="submit" 
+                disabled={isLoggingIn}
+                className="w-full py-4 rounded-2xl font-black bg-gradient-to-r from-violet-600 to-violet-800 text-white hover:from-violet-700 hover:to-violet-900 transition-all shadow-xl shadow-violet-200 active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100 flex items-center justify-center gap-2"
+              >
+                {isLoggingIn ? (
+                  <>
+                    <RefreshCw size={20} className="animate-spin" />
+                    <span>กำลังเข้าสู่ระบบ...</span>
+                  </>
+                ) : (
+                  <>
+                    <Unlock size={20} />
+                    <span>เข้าใช้งานระบบ (ADMIN)</span>
+                  </>
+                )}
+              </button>
+              
+              <button 
+                type="button" 
+                onClick={onClose} 
+                disabled={isLoggingIn}
+                className="group w-full py-4 rounded-2xl font-bold bg-white text-violet-700 border-2 border-violet-100 hover:bg-violet-50 hover:border-violet-200 transition-all flex items-center justify-center gap-2"
+              >
+                <User size={20} className="group-hover:scale-110 transition-transform" />
+                <span>เข้าชมข้อมูล (VISTOR)</span>
               </button>
             </div>
-          </div>
-          {error && (
-            <div className="p-3 rounded-xl bg-red-50 border border-red-100">
-              <p className="text-xs text-red-500 font-bold text-center">{error}</p>
-            </div>
-          )}
-          <div className="flex flex-col gap-3 pt-2">
-            <button 
-              type="submit" 
-              disabled={isLoggingIn}
-              className="w-full p-3 rounded-xl font-bold bg-violet-600 text-white hover:bg-violet-700 transition-colors shadow-lg shadow-violet-600/20 disabled:opacity-50"
-            >
-              {isLoggingIn ? 'กำลังเชื่อมต่อ...' : 'เข้าสู่ระบบแอดมิน'}
-            </button>
-            <button 
-              type="button" 
-              onClick={onClose} 
-              disabled={isLoggingIn}
-              className="w-full p-3 rounded-xl font-bold bg-violet-50 text-violet-600 hover:bg-violet-100 transition-colors disabled:opacity-50"
-            >
-              เข้าชมแบบผู้เยี่ยมชม (Visitor)
-            </button>
-            <button 
-              type="button" 
-              onClick={onClose} 
-              disabled={isLoggingIn}
-              className="w-full p-2 text-sm font-medium opacity-50 hover:opacity-100 transition-opacity"
-            >
-              ยกเลิก
-            </button>
-          </div>
-        </form>
+            
+            <p className="text-[10px] text-center text-violet-300 font-medium pt-4">
+              © 2026 การไฟฟ้าส่วนภูมิภาคสาขาทับสะแก · v2.4.0
+            </p>
+          </form>
+        </div>
       </motion.div>
     </div>
   );
@@ -253,7 +288,10 @@ export default function App() {
     return saved ? JSON.parse(saved) : null;
   });
   const [firebaseUser, setFirebaseUser] = useState(auth.currentUser);
-  const [showLogin, setShowLogin] = useState(false);
+  const [showLogin, setShowLogin] = useState(() => {
+    const saved = localStorage.getItem('admin_session');
+    return !saved;
+  });
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
@@ -526,17 +564,26 @@ export default function App() {
 
   if (!isAuthReady) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <div className="w-12 h-12 border-4 border-violet-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
-          <p className="text-sm font-bold opacity-50">กำลังเชื่อมต่อฐานข้อมูล...</p>
+      <div className="min-h-screen bg-gradient-to-br from-violet-700 via-violet-800 to-violet-950 flex items-center justify-center relative overflow-hidden">
+        {/* Animated background blobs */}
+        <div className="absolute top-0 right-0 w-96 h-96 bg-violet-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-pulse" />
+        <div className="absolute bottom-0 left-0 w-96 h-96 bg-orange-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-pulse delay-700" />
+        
+        <div className="text-center space-y-6 relative z-10">
+          <div className="w-20 h-20 bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl flex items-center justify-center mx-auto shadow-2xl shadow-violet-950/50">
+            <div className="w-10 h-10 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-white font-black text-xl tracking-wide">กำลังเตรียมข้อมูล...</h2>
+            <p className="text-violet-200 text-xs font-bold uppercase tracking-[0.2em] opacity-60">Employee Record System (PEA)</p>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-[#1A1A1A] font-sans">
+    <div className="min-h-screen bg-violet-50/50 text-[#1A1A1A] font-sans">
       <AnimatePresence>
         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       </AnimatePresence>
@@ -565,18 +612,32 @@ export default function App() {
 
       {/* Sidebar / Navigation */}
       <div className="flex flex-col md:flex-row min-h-screen">
-        <nav className="w-full md:w-64 bg-white border-r border-black/5 p-6 flex flex-col gap-8">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-violet-600 rounded-xl flex items-center justify-center text-white">
-              <Users size={24} />
-            </div>
-              <div>
-                <h1 className="font-bold text-lg leading-tight flex items-center gap-2">
-                  ระบบบันทึกข้อมูล
-                  <span className="text-[10px] bg-violet-100 text-violet-600 px-1.5 py-0.5 rounded-full">v2.1</span>
-                </h1>
-                <p className="text-xs opacity-50 uppercase tracking-wider">Employee Records</p>
+        <nav className="w-full md:w-72 bg-white border-r border-violet-100 p-6 flex flex-col gap-8 shadow-[1px_0_10px_rgba(139,92,246,0.05)]">
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center gap-4 group cursor-default">
+              <div className="w-14 h-14 bg-gradient-to-br from-violet-600 to-violet-800 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-violet-200 group-hover:rotate-6 transition-transform">
+                <Users size={32} />
               </div>
+              <div className="flex flex-col">
+                <h1 className="font-black text-base text-violet-950 leading-tight">
+                  ระบบบันทึกข้อมูล
+                </h1>
+                <p className="text-[10px] font-bold text-orange-500 uppercase tracking-wider">EMPLOYEE RECORD SYSTEM</p>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+                  <span className="text-[9px] font-bold text-violet-400">PEA THAP SAKAE</span>
+                </div>
+              </div>
+            </div>
+            
+            {!isAdmin && (
+              <div className="p-4 rounded-2xl bg-orange-50 border border-orange-100 space-y-2">
+                <p className="text-[10px] font-bold text-orange-600 uppercase tracking-widest">โหมดผู้เยี่ยมชม</p>
+                <p className="text-[11px] text-orange-800/70 font-medium leading-relaxed">
+                  คุณกำลังเข้าชมข้อมูลในโหมด Visitor หากต้องการบันทึกข้อมูลกรุณาเข้าสู่ระบบ
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-col gap-2">
@@ -642,9 +703,12 @@ export default function App() {
             ) : (
               <button 
                 onClick={() => setShowLogin(true)}
-                className="w-full flex items-center justify-center gap-2 p-4 rounded-xl bg-violet-600 text-white font-bold hover:bg-violet-700 transition-colors"
+                className="w-full flex items-center justify-center gap-3 p-4 rounded-2xl bg-gradient-to-r from-violet-600 to-violet-800 text-white font-black hover:from-violet-700 hover:to-violet-900 transition-all shadow-xl shadow-violet-200 active:scale-[0.98] border border-violet-400/20"
               >
-                <Lock size={18} /> เข้าสู่ระบบแอดมิน
+                <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
+                  <Lock size={18} />
+                </div>
+                <span>เข้าสู่ระบบ ADMIN</span>
               </button>
             )}
           </div>
