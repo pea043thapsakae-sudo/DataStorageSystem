@@ -29,7 +29,13 @@ import {
   FileText,
   ExternalLink,
   X,
-  Image as ImageIcon
+  Image as ImageIcon,
+  CheckCircle2,
+  Clock,
+  AlertCircle,
+  User,
+  Briefcase,
+  Check
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { EMPLOYEES, INNOVATION_TYPES, KM_SUBTYPES, ACTIVITY_TYPES, LEAVE_TYPES, LEAVE_DURATIONS } from './constants';
@@ -1271,7 +1277,7 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
   const [isUploading, setIsUploading] = useState(false);
   
   const groupEmployees = useMemo(() => {
-    return employees.filter(emp => emp.group === activeGroup || emp.group === 'Both');
+    return employees.filter(emp => (emp.group === activeGroup || emp.group === 'Both') && emp.id !== 1);
   }, [activeGroup, employees]);
 
   const [attendance, setAttendance] = useState<{ [key: number]: { status: 'เข้าร่วม' | 'ไม่เข้าร่วม' | 'อื่นๆ' | 'สลับคู่', reason: string, swapWithId?: number } }>(
@@ -1792,9 +1798,9 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
                       ))}
                     </div>
                     <div className="flex gap-2 text-xs font-bold">
-                      <span className="px-2 py-1 bg-green-100 text-green-700 rounded-lg">เข้าร่วม: {group.filter(r => r.status === 'เข้าร่วม').length}</span>
-                      <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-lg">สลับคู่: {group.filter(r => r.status === 'สลับคู่').length}</span>
-                      <span className="px-2 py-1 bg-red-100 text-red-700 rounded-lg">ไม่เข้าร่วม: {group.filter(r => r.status === 'ไม่เข้าร่วม').length}</span>
+                      <span className="px-2 py-1 bg-green-100 text-green-700 rounded-lg">เข้าร่วม: {group.filter(r => r.employeeId !== 1 && r.status === 'เข้าร่วม').length}</span>
+                      <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-lg">สลับคู่: {group.filter(r => r.employeeId !== 1 && r.status === 'สลับคู่').length}</span>
+                      <span className="px-2 py-1 bg-red-100 text-red-700 rounded-lg">ไม่เข้าร่วม: {group.filter(r => r.employeeId !== 1 && r.status === 'ไม่เข้าร่วม').length}</span>
                     </div>
                     {isAdmin && (
                       <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
@@ -1817,7 +1823,7 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
                   </div>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-                  {group.map(r => {
+                  {group.filter(r => r.employeeId !== 1).map(r => {
                     const emp = employees.find(e => e.id === r.employeeId);
                     const swapEmp = r.swapWithId ? employees.find(e => e.id === r.swapWithId) : null;
                     return (
@@ -2193,374 +2199,200 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
 }
 
 function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, isAdmin, setToast }: { employees: Employee[], records: LeaveRecord[], onAdd: (r: any) => Promise<void>, onUpdate: (id: string, r: any) => Promise<void>, onDelete: (id: string) => Promise<void>, isAdmin: boolean, setToast: (t: any) => void }) {
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [isSaving, setIsSaving] = useState<string | null>(null); // employeeId being saved
   const [searchTerm, setSearchTerm] = useState('');
-  const [lateDates, setLateDates] = useState<string[]>([]);
-  const [formData, setFormData] = useState({ 
-    employeeId: employees[0]?.id || 1, 
-    type: 'ลาป่วย' as any, 
-    reason: '', 
-    startDate: new Date().toISOString().split('T')[0], 
-    endDate: new Date().toISOString().split('T')[0],
-    duration: '1 วัน'
-  });
 
-  const handleAddLateDate = (date: string) => {
-    if (date && !lateDates.includes(date)) {
-      const newDates = [...lateDates, date].sort();
-      setLateDates(newDates);
-      setFormData(prev => ({ ...prev, duration: `${newDates.length} วัน` }));
-    }
-  };
+  // Daily attendance for selected date
+  const dailyAttendance = useMemo(() => {
+    return employees.reduce((acc, emp) => {
+      const record = records.find(r => r.employeeId === emp.id && r.startDate === selectedDate);
+      acc[emp.id] = record || null;
+      return acc;
+    }, {} as { [key: number]: LeaveRecord | null });
+  }, [employees, records, selectedDate]);
 
-  const handleRemoveLateDate = (index: number) => {
-    const newDates = lateDates.filter((_, i) => i !== index);
-    setLateDates(newDates);
-    setFormData(prev => ({ ...prev, duration: `${newDates.length} วัน` }));
-  };
-
-  useEffect(() => {
-    if (employees.length > 0 && !editingId) {
-      setFormData(prev => ({
-        ...prev,
-        employeeId: prev.employeeId === 1 && employees.every(e => e.id !== 1) ? employees[0].id : prev.employeeId
-      }));
-    }
-  }, [employees, editingId]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSaving(true);
+  const handleStatusChange = async (empId: number, type: typeof LEAVE_TYPES[number]) => {
+    if (!isAdmin) return;
+    setIsSaving(empId.toString());
     
-    // Safety timeout
-    const timeout = setTimeout(() => {
-      setToast({ message: "การบันทึกอาจใช้เวลานานกว่าปกติ กรุณารอสักครู่...", type: 'info' });
-    }, 15000);
-
     try {
-      if (!auth.currentUser) {
-        throw new Error(JSON.stringify({ 
-          error: "Missing or insufficient permissions: Not logged in with Google",
-          operationType: 'write',
-          path: 'leaveRecords'
-        }));
-      }
-
-      if (editingId) {
-        const finalData = { ...formData, lateDates: formData.type === 'มาสาย' ? lateDates : [] } as any;
-        if (formData.type === 'มาสาย' && lateDates.length > 0) {
-          const sorted = [...lateDates].sort();
-          finalData.startDate = sorted[0];
-          finalData.endDate = sorted[sorted.length - 1];
-          // Only append "มาสายวันที่" if it's not already there or if we want to refresh it
-          const cleanReason = formData.reason.replace(/^มาสายวันที่: .*? - /, '').replace(/^มาสายวันที่: .*?$/, '');
-          finalData.reason = `มาสายวันที่: ${lateDates.map(d => new Date(d).toLocaleDateString('th-TH')).join(', ')}${cleanReason ? ` - ${cleanReason}` : ''}`;
-        }
-        await onUpdate(editingId, finalData);
-        setEditingId(null);
-        setToast({ message: 'แก้ไขข้อมูลการลาสำเร็จ', type: 'success' });
-      } else {
-        const finalData = { ...formData, lateDates: formData.type === 'มาสาย' ? lateDates : [] } as any;
-        if (formData.type === 'มาสาย' && lateDates.length > 0) {
-          const sorted = [...lateDates].sort();
-          finalData.startDate = sorted[0];
-          finalData.endDate = sorted[sorted.length - 1];
-          finalData.reason = `มาสายวันที่: ${lateDates.map(d => new Date(d).toLocaleDateString('th-TH')).join(', ')}${formData.reason ? ` - ${formData.reason}` : ''}`;
-        }
-        await onAdd(finalData);
-        setToast({ message: 'บันทึกข้อมูลการลาสำเร็จ', type: 'success' });
-      }
-      setFormData({ 
-        employeeId: employees[0]?.id || 1, 
-        type: 'ลาป่วย', 
-        reason: '', 
-        startDate: new Date().toISOString().split('T')[0], 
-        endDate: new Date().toISOString().split('T')[0],
-        duration: '1 วัน'
-      });
-      setLateDates([]);
-    } catch (err: any) {
-      console.error("Leave submit error:", err);
-      let msg = "เกิดข้อผิดพลาดในการบันทึกข้อมูลการลา กรุณาลองใหม่อีกครั้ง";
-      try {
-        const errInfo = JSON.parse(err.message);
-        if (errInfo.error && (errInfo.error.includes("permission") || errInfo.error.includes("insufficient"))) {
-          msg = "สิทธิ์ไม่เพียงพอ: กรุณาเข้าสู่ระบบแอดมินใหม่อีกครั้งเพื่อรีเซ็ตการเชื่อมต่อ";
-        } else if (errInfo.error && errInfo.error.includes("Quota")) {
-          msg = "โควตาฐานข้อมูลเต็ม (Spark Plan) กรุณารอรีเซ็ตในวันถัดไป";
-        }
-      } catch (e) { /* use default msg */ }
+      const existingRecord = records.find(r => r.employeeId === empId && r.startDate === selectedDate);
       
-      setToast({ 
-        message: msg, 
-        type: 'error' 
-      });
+      const recordData = {
+        employeeId: empId,
+        type,
+        startDate: selectedDate,
+        endDate: selectedDate,
+        duration: '1 วัน',
+        reason: type === 'มาปกติ' ? 'มาทำงานปกติ' : type,
+        lateDates: type === 'มาสาย' ? [selectedDate] : []
+      };
+
+      if (existingRecord) {
+        if (existingRecord.type === type) {
+          // If clicking the same status, maybe toggle? Usually in attendance you just leave it.
+          // Or we could delete it if it's 'Normal'? 
+          // Let's just update for now.
+        }
+        await onUpdate(existingRecord.id, recordData);
+      } else {
+        await onAdd(recordData);
+      }
+    } catch (err: any) {
+      console.error("Attendance change error:", err);
+      setToast({ message: "เกิดข้อผิดพลาดในการบันทึกข้อมูล", type: 'error' });
     } finally {
-      clearTimeout(timeout);
-      setIsSaving(false);
+      setIsSaving(null);
     }
   };
 
-  const startEdit = (record: LeaveRecord) => {
-    setEditingId(record.id);
-    setFormData({
-      employeeId: record.employeeId,
-      type: record.type,
-      reason: record.reason,
-      startDate: record.startDate,
-      endDate: record.endDate,
-      duration: record.duration || '1 วัน'
-    });
-    setLateDates(record.lateDates || []);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+  const getStatusIcon = (type: string) => {
+    switch (type) {
+      case 'มาปกติ': return <CheckCircle2 size={16} />;
+      case 'มาสาย': return <Clock size={16} />;
+      case 'ลาป่วย': return <AlertCircle size={16} />;
+      case 'ลากิจ': return <User size={16} />;
+      case 'ราชการ': return <Briefcase size={16} />;
+      default: return <Calendar size={16} />;
+    }
   };
+
+  const getStatusStyle = (type: string, active: boolean) => {
+    if (!active) return "bg-slate-50 text-slate-400 hover:bg-slate-100";
+    
+    switch (type) {
+      case 'มาปกติ': return "bg-green-50 text-green-600 border-green-100 ring-1 ring-green-200";
+      case 'มาสาย': return "bg-amber-50 text-amber-600 border-amber-100 ring-1 ring-amber-200";
+      case 'ลาป่วย': return "bg-rose-50 text-rose-600 border-rose-100 ring-1 ring-rose-200";
+      case 'ลากิจ': return "bg-blue-50 text-blue-600 border-blue-100 ring-1 ring-blue-200";
+      case 'ราชการ': return "bg-indigo-50 text-indigo-600 border-indigo-100 ring-1 ring-indigo-200";
+      default: return "bg-violet-50 text-violet-600";
+    }
+  };
+
+  const filteredEmployees = employees.filter(emp => 
+    emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    emp.position.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
-      <ConfirmDialog 
-        isOpen={!!deleteConfirmId}
-        onClose={() => setDeleteConfirmId(null)}
-        onConfirm={() => deleteConfirmId && onDelete(deleteConfirmId)}
-        title="ยืนยันการลบข้อมูล"
-        message="คุณแน่ใจหรือไม่ว่าต้องการลบข้อมูลการลานี้? การกระทำนี้ไม่สามารถย้อนกลับได้"
-      />
-
-      <header>
-        <h2 className="text-3xl font-bold serif">{editingId ? 'แก้ไขข้อมูลวันหยุดวันลา' : 'วันหยุดวันลา'}</h2>
-      </header>
-
-      {isAdmin && (
-        <div className="bg-white p-8 rounded-3xl shadow-sm border border-black/5">
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <label className="text-xs font-bold uppercase tracking-widest opacity-50">พนักงาน</label>
-              <select 
-                className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500"
-                value={formData.employeeId}
-                onChange={e => setFormData({ ...formData, employeeId: Number(e.target.value) })}
-              >
-                {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs font-bold uppercase tracking-widest opacity-50">ประเภทการลา / การมาสาย</label>
-              <select 
-                className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500"
-                value={formData.type}
-                onChange={e => {
-                  const newType = e.target.value as any;
-                  setFormData({ ...formData, type: newType });
-                  if (newType === 'มาสาย') {
-                    setFormData(prev => ({ ...prev, duration: '0 วัน' }));
-                  } else {
-                    setFormData(prev => ({ ...prev, duration: '1 วัน' }));
-                  }
-                }}
-              >
-                {LEAVE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </div>
-
-            {formData.type === 'มาสาย' ? (
-              <div className="md:col-span-2 space-y-4">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-widest opacity-50 text-violet-600">กดเลือกวันที่มาสาย (ปี/เดือน/วัน)</label>
-                  <div className="flex gap-2">
-                    <input 
-                      type="date"
-                      className="flex-1 p-3 rounded-xl bg-slate-100 border-none focus:ring-2 focus:ring-violet-500"
-                      onChange={e => handleAddLateDate(e.target.value)}
-                      value=""
-                    />
-                    <div className="px-4 py-3 bg-violet-100 text-violet-700 rounded-xl font-bold">
-                      รวม {lateDates.length} วัน
-                    </div>
-                  </div>
-                </div>
-
-                {lateDates.length > 0 && (
-                  <div className="flex flex-wrap gap-2 p-4 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
-                    {lateDates.map((date, idx) => (
-                      <div key={idx} className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg shadow-sm font-bold text-xs">
-                        <span>{new Date(date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}</span>
-                        <button 
-                          type="button" 
-                          onClick={() => handleRemoveLateDate(idx)}
-                          className="text-red-500 hover:text-red-700"
-                        >
-                          <Plus size={14} className="rotate-45" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-widest opacity-50">ตั้งแต่วันที่</label>
-                  <input 
-                    type="date"
-                    className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500"
-                    value={formData.startDate}
-                    onChange={e => setFormData({ ...formData, startDate: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-widest opacity-50">ถึงวันที่</label>
-                  <input 
-                    type="date"
-                    className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500"
-                    value={formData.endDate}
-                    onChange={e => setFormData({ ...formData, endDate: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2 col-span-1 md:col-span-2">
-                  <label className="text-xs font-bold uppercase tracking-widest opacity-50">ช่วงเวลา/จำนวนวัน</label>
-                  <select 
-                    className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500"
-                    value={formData.duration}
-                    onChange={e => setFormData({ ...formData, duration: e.target.value })}
-                  >
-                    {LEAVE_DURATIONS.map(d => <option key={d} value={d}>{d}</option>)}
-                  </select>
-                </div>
-              </>
-            )}
-
-            <div className="md:col-span-2 space-y-2">
-              <label className="text-xs font-bold uppercase tracking-widest opacity-50">เหตุผลเพิ่มเติม (ถ้ามี)</label>
-              <textarea 
-                className="w-full p-3 rounded-xl bg-slate-50 border-none focus:ring-2 focus:ring-violet-500 min-h-[100px]"
-                placeholder="ระบุรายละเอียดเพิ่มเติม..."
-                value={formData.reason}
-                onChange={e => setFormData({ ...formData, reason: e.target.value })}
-              />
-            </div>
-            <div className="md:col-span-2 flex gap-3">
-              <button 
-                type="submit" 
-                disabled={isSaving}
-                className="flex-1 bg-violet-600 text-white p-4 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSaving ? (
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                ) : (
-                  editingId ? <ShieldCheck size={20} /> : <Plus size={20} />
-                )} 
-                {isSaving ? 'กำลังบันทึก...' : (editingId ? 'บันทึกการแก้ไข' : 'บันทึกการลา')}
-              </button>
-              {editingId && (
-                <button 
-                  type="button" 
-                  disabled={isSaving}
-                  onClick={() => {
-                    setEditingId(null);
-                    setLateDates([]);
-                    setFormData({ 
-                      employeeId: employees[0]?.id || 1, 
-                      type: 'ลาป่วย', 
-                      reason: '', 
-                      startDate: new Date().toISOString().split('T')[0], 
-                      endDate: new Date().toISOString().split('T')[0],
-                      duration: '1 วัน'
-                    });
-                  }}
-                  className="px-6 bg-black/5 text-black/50 p-4 rounded-xl font-bold hover:bg-black/10 transition-colors disabled:opacity-50"
-                >
-                  ยกเลิก
-                </button>
-              )}
-            </div>
-          </form>
+    <div className="max-w-5xl mx-auto space-y-6">
+      <header className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold serif">บันทึกวันหยุดวันลา / การมาทำงาน</h2>
+          <p className="text-slate-500 text-xs mt-1">เลือกวันที่และระบุสถานะรายบุคคล (คลิกที่ปุ่มเพื่อบันทึก)</p>
         </div>
-      )}
-
-      <div className="space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <Search size={20} className="text-violet-600" />
-            <h3 className="text-xl font-bold">ประวัติการลา</h3>
-          </div>
-          <div className="flex-1 max-w-md relative">
+        
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[200px]">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30" />
             <input 
               type="text"
-              placeholder="ค้นหาชื่อพนักงาน หรือเหตุผลการลา..."
-              className="w-full pl-10 pr-4 py-2 rounded-xl bg-white border border-black/5 text-sm focus:ring-2 focus:ring-violet-500 transition-all"
+              placeholder="ค้นหาชื่อพนักงาน..."
+              className="w-full pl-9 pr-4 py-2 rounded-xl bg-white border border-black/5 text-xs focus:ring-2 focus:ring-violet-500 transition-all font-medium"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
             />
           </div>
+          
+          <div className="bg-white p-1 rounded-xl border border-black/5 flex items-center gap-2 pr-3">
+            <div className="w-8 h-8 rounded-lg bg-violet-600 flex items-center justify-center text-white shrink-0">
+              <Calendar size={16} />
+            </div>
+            <input 
+              type="date"
+              className="border-none focus:ring-0 font-bold text-xs bg-transparent p-0"
+              value={selectedDate}
+              onChange={e => setSelectedDate(e.target.value)}
+            />
+          </div>
         </div>
-        <div className="grid gap-4">
-          {records.length === 0 ? (
-            <div className="p-10 text-center opacity-30 italic">ยังไม่มีข้อมูลการลา</div>
-          ) : (
-            records.filter(r => {
-              if (!searchTerm.trim()) return true;
-              const term = searchTerm.toLowerCase();
-              const emp = employees.find(e => e.id === r.employeeId);
-              return (
-                emp?.name.toLowerCase().includes(term) || 
-                r.reason.toLowerCase().includes(term) || 
-                r.type.toLowerCase().includes(term)
-              );
-            }).slice().reverse().map(record => {
-              const emp = employees.find(e => e.id === record.employeeId);
-              return (
-                <div key={record.id} className="bg-white p-6 rounded-2xl border border-black/5 flex items-center justify-between group">
-                  <div className="flex gap-4 items-center">
-                    <div className="w-10 h-10 rounded-xl bg-violet-50 flex items-center justify-center text-violet-600">
-                      <Calendar size={20} />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                          record.type === 'ลาป่วย' ? 'bg-red-100 text-red-700' :
-                          record.type === 'ลากิจ' ? 'bg-orange-100 text-orange-700' :
-                          record.type === 'มาสาย' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'
-                        }`}>{record.type}</span>
-                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">{record.duration || '1 วัน'}</span>
-                        <span className="text-xs opacity-50">{record.startDate === record.endDate ? record.startDate : `${record.startDate} ถึง ${record.endDate}`}</span>
+      </header>
+
+      <div className="grid gap-2">
+        {filteredEmployees.length === 0 ? (
+          <div className="p-12 bg-white rounded-3xl text-center border border-dashed border-slate-200">
+            <p className="text-slate-400 text-sm italic">ไม่พบรายชื่อพนักงานที่ค้นหา</p>
+          </div>
+        ) : (
+          filteredEmployees.map(emp => {
+            const currentRecord = dailyAttendance[emp.id];
+            const isActive = isSaving === emp.id.toString();
+
+            return (
+              <motion.div 
+                layout
+                key={emp.id} 
+                className={`bg-white p-3 md:p-4 rounded-2xl border border-black/5 shadow-sm hover:shadow-md transition-shadow flex flex-col md:flex-row md:items-center justify-between gap-4 ${isActive ? 'opacity-50 pointer-events-none' : ''}`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center text-orange-600 font-bold text-base relative shrink-0">
+                    {emp.name.charAt(0)}
+                    {currentRecord?.type === 'มาปกติ' && (
+                      <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 text-white rounded-full flex items-center justify-center border-2 border-white">
+                        <Check size={10} strokeWidth={4} />
                       </div>
-                      <h4 className="font-bold text-slate-900">{emp?.name || 'ไม่พบพนักงาน'}</h4>
-                      {record.type === 'มาสาย' ? (
-                        <p className="text-sm opacity-60 mt-0.5">
-                          {record.reason && record.reason.startsWith('มาสายวันที่:') 
-                            ? record.reason 
-                            : `มาสายวันที่: ${record.startDate === record.endDate ? record.startDate : `${record.startDate} ถึง ${record.endDate}`}${record.reason ? ` - ${record.reason}` : ''}`
-                          }
-                        </p>
-                      ) : (
-                        record.reason && <p className="text-sm opacity-60 mt-0.5">{record.reason}</p>
-                      )}
-                    </div>
+                    )}
                   </div>
-                  {isAdmin && (
-                    <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                      <button 
-                        onClick={() => startEdit(record)} 
-                        className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg"
-                        title="แก้ไข"
-                      >
-                        <Plus size={18} className="rotate-45" />
-                      </button>
-                      <button 
-                        onClick={() => setDeleteConfirmId(record.id)} 
-                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
-                        title="ลบ"
-                      >
-                        <Trash2 size={18} />
-                      </button>
-                    </div>
-                  )}
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-800">{emp.name}</h4>
+                    <p className="text-[10px] text-slate-400">{emp.position}</p>
+                  </div>
                 </div>
-              );
-            })
-          )}
+
+                <div className="flex flex-wrap gap-1.5 md:gap-2">
+                  {LEAVE_TYPES.map(type => {
+                    const isSelected = currentRecord?.type === type;
+                    return (
+                      <button
+                        key={type}
+                        onClick={() => handleStatusChange(emp.id, type)}
+                        className={`group relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all ${getStatusStyle(type, isSelected)}`}
+                        disabled={!isAdmin || isActive}
+                      >
+                        {getStatusIcon(type)}
+                        <span>{type}</span>
+                        {isSelected && (
+                          <motion.div 
+                            layoutId={`active-dot-${emp.id}`}
+                            className="absolute -top-1 -right-1 w-4 h-4 bg-white border-2 border-green-500 rounded-full flex items-center justify-center z-10"
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                          >
+                            <Check size={10} className="text-green-500" strokeWidth={4} />
+                          </motion.div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            );
+          })
+        )}
+      </div>
+
+      <div className="bg-violet-900 text-white p-6 rounded-3xl shadow-xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-48 h-48 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl" />
+        <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="space-y-1 text-center md:text-left">
+            <h3 className="text-lg font-bold">สรุปสถานะประจำวันที่ {new Date(selectedDate).toLocaleDateString('th-TH', { dateStyle: 'full' })}</h3>
+            <p className="opacity-60 text-[10px]">ตรวจสอบความถูกต้องของการลงบันทึกในวันนี้</p>
+          </div>
+          <div className="flex flex-wrap justify-center gap-2">
+            {[
+              { label: 'มาปกติ', color: 'bg-green-500', count: (Object.values(dailyAttendance) as (LeaveRecord | null)[]).filter(r => r?.type === 'มาปกติ').length },
+              { label: 'มาสาย', color: 'bg-amber-500', count: (Object.values(dailyAttendance) as (LeaveRecord | null)[]).filter(r => r?.type === 'มาสาย').length },
+              { label: 'ลากิจ/ลาป่วย', color: 'bg-rose-500', count: (Object.values(dailyAttendance) as (LeaveRecord | null)[]).filter(r => r?.type === 'ลากิจ' || r?.type === 'ลาป่วย').length },
+            ].map(stat => (
+              <div key={stat.label} className="bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-xl flex items-center gap-2">
+                <div className={`w-1.5 h-1.5 rounded-full ${stat.color}`} />
+                <span className="text-[10px] font-medium opacity-80">{stat.label}</span>
+                <span className="text-sm font-bold">{stat.count}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -2572,6 +2404,7 @@ function ReportSection({ state }: { state: AppState }) {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [rangeStart, setRangeStart] = useState(new Date().toISOString().substring(0, 7)); // YYYY-MM
   const [rangeEnd, setRangeEnd] = useState(new Date().toISOString().substring(0, 7)); // YYYY-MM
+  const [reportTab, setReportTab] = useState<'individual' | 'external'>('individual');
 
   // State to hold the filters that are currently showing in the UI
   const [activeFilter, setActiveFilter] = useState({
@@ -2685,10 +2518,48 @@ function ReportSection({ state }: { state: AppState }) {
       const business = sumDays('ลากิจ');
       const late = sumDays('มาสาย');
       const official = sumDays('ราชการ');
+      const absent = sumDays('ขาดงาน');
+      const normal = sumDays('มาปกติ');
       
-      return { ...emp, sick, business, late, official, total: sick + business + late + official };
+      return { ...emp, sick, business, late, official, absent, normal, total: sick + business + late + official + absent };
     });
   }, [filteredData.leaves, state.employees]);
+
+  const groupActivitySummary = useMemo(() => {
+    const externalActivities = filteredData.activities.filter(r => r.type === 'กิจกรรมภายนอก');
+    
+    const calculateGroup = (groupName: 'A' | 'B') => {
+      const groupMembers = state.employees.filter(e => (e.group === groupName || e.group === 'Both') && e.id !== 1);
+      const memberIds = new Set(groupMembers.map(e => e.id));
+      
+      const groupRecords = externalActivities.filter(r => memberIds.has(r.employeeId));
+      
+      // Total unique activity events where at least one member of this group was assigned
+      const uniqueActivitiesCount = new Set(groupRecords.map(r => `${r.date}|${r.title}`)).size;
+      
+      // Total participations by members of this group
+      const participations = groupRecords.filter(r => r.status === 'เข้าร่วม' || r.status === 'อื่นๆ').length;
+      
+      // The denominator should be the actual records count (assignments) for this group
+      const totalAssignments = groupRecords.length;
+      const percentage = totalAssignments > 0 ? Math.round((participations / totalAssignments) * 100) : 0;
+      
+      return {
+        groupName,
+        uniqueActivitiesCount,
+        participations,
+        totalAssignments,
+        memberCount: groupMembers.length,
+        percentage
+      };
+    };
+
+    return {
+      A: calculateGroup('A'),
+      B: calculateGroup('B')
+    };
+  }, [filteredData.activities, state.employees]);
+
 
   const comprehensiveSummary = useMemo(() => {
     return state.employees.map(emp => {
@@ -2708,7 +2579,8 @@ function ReportSection({ state }: { state: AppState }) {
         sick: leave?.sick || 0,
         business: leave?.business || 0,
         late: leave?.late || 0,
-        official: leave?.official || 0
+        official: leave?.official || 0,
+        absent: leave?.absent || 0
       };
     });
   }, [innovationSummary, activitySummary, leaveSummary, state.employees]);
@@ -2727,12 +2599,11 @@ function ReportSection({ state }: { state: AppState }) {
       'ความคิดสร้างสรรค์': s.creativity,
       'กิจกรรมภายใน': s.activity,
       '% ภายใน': s.activityPercentage + '%',
-      'กิจกรรมภายนอก': s.external,
-      '% ภายนอก': s.externalPercentage + '%',
       'ลาป่วย': s.sick,
       'ลากิจ': s.business,
       'มาสาย': s.late,
-      'ราชการ': s.official
+      'ราชการ': s.official,
+      'ขาดงาน': s.absent
     }));
     exportToCSV(data, `สรุปรายบุคคล_${filterType}_${new Date().toLocaleDateString()}`);
   };
@@ -2742,6 +2613,20 @@ function ReportSection({ state }: { state: AppState }) {
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <h2 className="text-3xl font-bold serif">รายงานสรุปผล</h2>
+          <div className="flex bg-white border border-black/5 rounded-xl p-1 mt-4 inline-flex">
+            <button 
+              onClick={() => setReportTab('individual')}
+              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${reportTab === 'individual' ? 'bg-violet-600 text-white shadow-sm' : 'hover:bg-black/5 opacity-50'}`}
+            >
+              สรุปรายบุคคล
+            </button>
+            <button 
+              onClick={() => setReportTab('external')}
+              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${reportTab === 'external' ? 'bg-violet-600 text-white shadow-sm' : 'hover:bg-black/5 opacity-50'}`}
+            >
+              สรุปกิจกรรมภายนอก
+            </button>
+          </div>
         </div>
         <div className="flex flex-wrap gap-4 items-center">
           <div className="flex flex-col gap-1">
@@ -2828,66 +2713,159 @@ function ReportSection({ state }: { state: AppState }) {
         </div>
       </header>
 
-      <section className="space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center text-violet-600">
-            <Users size={20} />
-          </div>
-          <h3 className="text-xl font-bold">ตารางสรุปสถิติจำแนกรายบุคคล</h3>
-        </div>
-        <div className="bg-white rounded-3xl shadow-sm border border-black/5 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[1000px]">
-              <thead>
-                <tr className="bg-black/5">
-                  <th className="p-4 text-[10px] font-bold uppercase tracking-widest opacity-50 sticky left-0 bg-black/10 z-20" rowSpan={2}>ชื่อ-นามสกุล</th>
-                  <th className="p-2 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center border-l border-black/5" colSpan={4}>งานนวัตกรรม / KM</th>
-                  <th className="p-2 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center border-l border-black/5" colSpan={4}>กิจกรรม</th>
-                  <th className="p-2 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center border-l border-black/5 font-bold text-red-600" colSpan={4}>วันหยุดวันลา / มาสาย</th>
-                </tr>
-                <tr className="bg-black/5">
-                  <th className="px-2 py-3 text-[9px] font-bold uppercase text-center border-l border-black/5 bg-black/[0.02]">นวัตกรรม</th>
-                  <th className="px-2 py-3 text-[9px] font-bold uppercase text-center bg-black/[0.02]">OPL</th>
-                  <th className="px-2 py-3 text-[9px] font-bold uppercase text-center bg-black/[0.02]">OPK</th>
-                  <th className="px-2 py-3 text-[9px] font-bold uppercase text-center bg-black/[0.02]">ความคิดสร้างสรรค์</th>
-                  
-                  <th className="px-2 py-3 text-[9px] font-bold uppercase text-center border-l border-black/5 bg-blue-50/30">ภายใน</th>
-                  <th className="px-2 py-3 text-[9px] font-bold uppercase text-center bg-blue-50/30">%</th>
-                  <th className="px-2 py-3 text-[9px] font-bold uppercase text-center bg-blue-50/30">ภายนอก</th>
-                  <th className="px-2 py-3 text-[9px] font-bold uppercase text-center bg-blue-50/30">%</th>
-                  
-                  <th className="px-2 py-3 text-[9px] font-bold uppercase text-center border-l border-black/5 text-red-600 bg-red-50/30">ลาป่วย</th>
-                  <th className="px-2 py-3 text-[9px] font-bold uppercase text-center text-red-600 bg-red-50/30">ลากิจ</th>
-                  <th className="px-2 py-3 text-[9px] font-bold uppercase text-center text-red-600 bg-red-50/30">มาสาย</th>
-                  <th className="px-2 py-3 text-[9px] font-bold uppercase text-center text-red-600 bg-red-50/30">ราชการ</th>
-                </tr>
-              </thead>
-              <tbody>
-                {comprehensiveSummary.map(row => (
-                  <tr key={row.id} className="border-b border-black/5 hover:bg-black/[0.01] transition-colors">
-                    <td className="p-4 font-bold text-sm sticky left-0 bg-white z-10 border-r border-black/5">{row.name}</td>
-                    
-                    <td className="p-2 text-center text-sm border-l border-black/5">{row.innovation || '-'}</td>
-                    <td className="p-2 text-center text-sm">{row.kmOpl || '-'}</td>
-                    <td className="p-2 text-center text-sm">{row.kmOpk || '-'}</td>
-                    <td className="p-2 text-center text-sm">{row.creativity || '-'}</td>
-                    
-                    <td className="p-2 text-center text-sm border-l border-black/5 font-medium">{row.activity || '-'}</td>
-                    <td className="p-2 text-center text-sm font-medium bg-blue-50/10">{row.activityPercentage || 0}%</td>
-                    <td className="p-2 text-center text-sm font-medium">{row.external || '-'}</td>
-                    <td className="p-2 text-center text-sm font-medium bg-blue-50/10">{row.externalPercentage || 0}%</td>
-                    
-                    <td className="p-2 text-center text-sm border-l border-black/5 text-red-600 font-medium">{row.sick || '-'}</td>
-                    <td className="p-2 text-center text-sm text-red-600 font-medium">{row.business || '-'}</td>
-                    <td className="p-2 text-center text-sm text-red-600 font-medium">{row.late || '-'}</td>
-                    <td className="p-2 text-center text-sm text-red-600 font-medium">{row.official || '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
+
+      <AnimatePresence mode="wait">
+        {reportTab === 'individual' ? (
+          <motion.section 
+            key="individual"
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+            className="space-y-4"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center text-violet-600">
+                <Users size={20} />
+              </div>
+              <h3 className="text-xl font-bold">ตารางสรุปสถิติจำแนกรายบุคคล</h3>
+            </div>
+            <div className="bg-white rounded-3xl shadow-sm border border-black/5 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[1000px]">
+                  <thead>
+                    <tr className="bg-black/5">
+                      <th className="p-4 text-[10px] font-bold uppercase tracking-widest opacity-50 sticky left-0 bg-black/10 z-20" rowSpan={2}>ชื่อ-นามสกุล</th>
+                      <th className="p-2 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center border-l border-black/5" colSpan={4}>งานนวัตกรรม / KM</th>
+                      <th className="p-2 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center border-l border-black/5" colSpan={2}>กิจกรรม</th>
+                      <th className="p-2 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center border-l border-black/5 font-bold text-red-600" colSpan={5}>วันหยุดวันลา / มาสาย</th>
+                    </tr>
+                    <tr className="bg-black/5">
+                      <th className="px-2 py-3 text-[9px] font-bold uppercase text-center border-l border-black/5 bg-black/[0.02]">นวัตกรรม</th>
+                      <th className="px-2 py-3 text-[9px] font-bold uppercase text-center bg-black/[0.02]">OPL</th>
+                      <th className="px-2 py-3 text-[9px] font-bold uppercase text-center bg-black/[0.02]">OPK</th>
+                      <th className="px-2 py-3 text-[9px] font-bold uppercase text-center bg-black/[0.02]">ความคิดสร้างสรรค์</th>
+                      
+                      <th className="px-2 py-3 text-[9px] font-bold uppercase text-center border-l border-black/5 bg-blue-50/30">ภายใน</th>
+                      <th className="px-2 py-3 text-[9px] font-bold uppercase text-center bg-blue-50/30 font-bold text-blue-600">%</th>
+                      
+                      <th className="px-2 py-3 text-[9px] font-bold uppercase text-center border-l border-black/5 text-red-600 bg-red-50/30">ลาป่วย</th>
+                      <th className="px-2 py-3 text-[9px] font-bold uppercase text-center text-red-600 bg-red-50/30">ลากิจ</th>
+                      <th className="px-2 py-3 text-[9px] font-bold uppercase text-center text-red-600 bg-red-50/30">มาสาย</th>
+                      <th className="px-2 py-3 text-[9px] font-bold uppercase text-center text-red-600 bg-red-50/30">ราชการ</th>
+                      <th className="px-2 py-3 text-[9px] font-bold uppercase text-center text-red-600 bg-red-50/30">ขาดงาน</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comprehensiveSummary.map(row => (
+                      <tr key={row.id} className="border-b border-black/5 hover:bg-black/[0.01] transition-colors">
+                        <td className="p-4 font-bold text-sm sticky left-0 bg-white z-10 border-r border-black/5">{row.name}</td>
+                        
+                        <td className="p-2 text-center text-sm border-l border-black/5">{row.innovation || '-'}</td>
+                        <td className="p-2 text-center text-sm">{row.kmOpl || '-'}</td>
+                        <td className="p-2 text-center text-sm">{row.kmOpk || '-'}</td>
+                        <td className="p-2 text-center text-sm">{row.creativity || '-'}</td>
+                        
+                        <td className="p-2 text-center text-sm border-l border-black/5 font-medium">{row.activity || '-'}</td>
+                        <td className="p-2 text-center text-sm font-bold bg-blue-50/10 text-blue-600">{row.activityPercentage || 0}%</td>
+                        
+                        <td className="p-2 text-center text-sm border-l border-black/5 text-red-600 font-medium">{row.sick || '-'}</td>
+                        <td className="p-2 text-center text-sm text-red-600 font-medium">{row.business || '-'}</td>
+                        <td className="p-2 text-center text-sm text-red-600 font-medium">{row.late || '-'}</td>
+                        <td className="p-2 text-center text-sm text-red-600 font-medium">{row.official || '-'}</td>
+                        <td className="p-2 text-center text-sm text-red-600 font-medium">{row.absent || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </motion.section>
+        ) : (
+          <motion.section 
+            key="external"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            className="space-y-6"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600">
+                <ShieldCheckIcon size={20} />
+              </div>
+              <h3 className="text-xl font-bold">วิเคราะห์กิจกรรมภายนอกแยกตามกลุ่ม</h3>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Table Group A */}
+              <div className="bg-white rounded-3xl shadow-sm border border-black/5 overflow-hidden flex flex-col">
+                <div className="p-4 bg-violet-600 text-white flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Shield size={18} />
+                    <h4 className="font-bold">สรุปรายบุคคล กลุ่ม A</h4>
+                  </div>
+                  <span className="text-[10px] font-bold opacity-75">กิจกรรมภายนอก</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50">
+                        <th className="p-3 text-[10px] font-bold uppercase tracking-widest opacity-50">ชื่อ-นามสกุล</th>
+                        <th className="p-3 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center">เข้าร่วม</th>
+                        <th className="p-3 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center">%</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {comprehensiveSummary
+                        .filter(emp => (emp.group === 'A' || emp.group === 'Both') && emp.id !== 1)
+                        .map(row => (
+                        <tr key={row.id} className="border-b border-black/5 hover:bg-black/[0.01] transition-colors">
+                          <td className="p-3 font-bold text-sm">{row.name}</td>
+                          <td className="p-3 text-center text-sm font-medium">{row.external || '-'}</td>
+                          <td className="p-3 text-center text-sm font-black text-violet-600 bg-violet-50/30">{row.externalPercentage || 0}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Table Group B */}
+              <div className="bg-white rounded-3xl shadow-sm border border-black/5 overflow-hidden flex flex-col">
+                <div className="p-4 bg-blue-600 text-white flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheckIcon size={18} />
+                    <h4 className="font-bold">สรุปรายบุคคล กลุ่ม B</h4>
+                  </div>
+                  <span className="text-[10px] font-bold opacity-75">กิจกรรมภายนอก</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50">
+                        <th className="p-3 text-[10px] font-bold uppercase tracking-widest opacity-50">ชื่อ-นามสกุล</th>
+                        <th className="p-3 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center">เข้าร่วม</th>
+                        <th className="p-3 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center">%</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {comprehensiveSummary
+                        .filter(emp => (emp.group === 'B' || emp.group === 'Both') && emp.id !== 1)
+                        .map(row => (
+                        <tr key={row.id} className="border-b border-black/5 hover:bg-black/[0.01] transition-colors">
+                          <td className="p-3 font-bold text-sm">{row.name}</td>
+                          <td className="p-3 text-center text-sm font-medium">{row.external || '-'}</td>
+                          <td className="p-3 text-center text-sm font-black text-blue-600 bg-blue-50/30">{row.externalPercentage || 0}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+          </motion.section>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

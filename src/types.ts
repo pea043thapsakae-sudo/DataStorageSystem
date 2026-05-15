@@ -41,7 +41,7 @@ export interface LeaveRecord {
   employeeId: number;
   startDate: string;
   endDate: string;
-  type: 'ลาป่วย' | 'ลากิจ' | 'มาสาย' | 'ราชการ';
+  type: 'มาปกติ' | 'มาสาย' | 'ลาป่วย' | 'ลากิจ' | 'ราชการ';
   reason: string;
   duration: string;
   lateDates?: string[];
