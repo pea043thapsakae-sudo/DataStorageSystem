@@ -2288,6 +2288,19 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteA
   const [searchTerm, setSearchTerm] = useState('');
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{ empId: number, type: string } | null>(null);
+  const [historySearch, setHistorySearch] = useState('');
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  const sortedHistory = useMemo(() => {
+    return [...records].sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
+  }, [records]);
+
+  const filteredHistory = sortedHistory.filter(r => {
+    const emp = employees.find(e => e.id === r.employeeId);
+    const searchMatch = emp?.name.toLowerCase().includes(historySearch.toLowerCase()) || 
+                       r.type.toLowerCase().includes(historySearch.toLowerCase());
+    return searchMatch;
+  }).slice(0, 30); // Show only last 30 for performance
 
   // Daily attendance for selected date
   const dailyAttendance = useMemo(() => {
@@ -2328,13 +2341,16 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteA
 
       if (existingRecord) {
         if (existingRecord.type === type) {
-          // If clicking the same status, maybe toggle? Usually in attendance you just leave it.
-          // Or we could delete it if it's 'Normal'? 
-          // Let's just update for now.
+          // Toggle off if same type is clicked
+          await onDelete(existingRecord.id);
+          setToast({ message: `ลบสถานะ ${type} ของพนักงานแล้ว`, type: 'success' });
+          return;
         }
         await onUpdate(existingRecord.id, recordData);
+        setToast({ message: `เปลี่ยนสถานะเป็น ${type} แล้ว`, type: 'success' });
       } else {
         await onAdd(recordData);
+        setToast({ message: `บันทึกสถานะ ${type} แล้ว`, type: 'success' });
       }
     } catch (err: any) {
       console.error("Attendance change error:", err);
@@ -2467,7 +2483,7 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteA
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-1.5 md:gap-2">
+                <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
                   {LEAVE_TYPES.map(type => {
                     const isSelected = currentRecord?.type === type;
                     const isConfirming = confirmAction?.empId === emp.id && confirmAction?.type === type;
@@ -2503,6 +2519,16 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteA
                       </button>
                     );
                   })}
+                  
+                  {currentRecord && isAdmin && (
+                    <button
+                      onClick={() => handleStatusChange(emp.id, currentRecord.type)}
+                      className="w-8 h-8 rounded-xl border border-rose-100 text-rose-400 hover:bg-rose-50 hover:text-rose-600 transition-all flex items-center justify-center shrink-0"
+                      title="ลบข้อมูลการมาทำงานของวันนี้"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
               </motion.div>
             );
@@ -2519,9 +2545,9 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteA
           </div>
           <div className="flex flex-wrap justify-center gap-2">
             {[
-              { label: 'มาสาย', color: 'bg-amber-500', count: (Object.values(dailyAttendance) as (LeaveRecord | null)[]).filter(r => r?.type === 'มาสาย').length },
-              { label: 'ลากิจ', color: 'bg-blue-500', count: (Object.values(dailyAttendance) as (LeaveRecord | null)[]).filter(r => r?.type === 'ลากิจ').length },
-              { label: 'ลาป่วย', color: 'bg-rose-500', count: (Object.values(dailyAttendance) as (LeaveRecord | null)[]).filter(r => r?.type === 'ลาป่วย').length },
+              { label: 'มาสาย', color: 'bg-amber-400', count: (Object.values(dailyAttendance) as (LeaveRecord | null)[]).filter(r => r?.type === 'มาสาย').length },
+              { label: 'ลากิจ', color: 'bg-blue-400', count: (Object.values(dailyAttendance) as (LeaveRecord | null)[]).filter(r => r?.type === 'ลากิจ').length },
+              { label: 'ลาป่วย', color: 'bg-rose-400', count: (Object.values(dailyAttendance) as (LeaveRecord | null)[]).filter(r => r?.type === 'ลาป่วย').length },
             ].map(stat => (
               <div key={stat.label} className="bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-xl flex items-center gap-2">
                 <div className={`w-1.5 h-1.5 rounded-full ${stat.color}`} />
@@ -2530,6 +2556,114 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteA
               </div>
             ))}
           </div>
+        </div>
+      </div>
+
+      {/* Recording History Section */}
+      <div className="bg-white rounded-3xl border border-black/5 shadow-sm overflow-hidden mt-8">
+        <div className="p-6 border-b border-black/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h3 className="text-lg font-bold">ประวัติการลงบันทึกข้อมูล (ล่าสุด 30 รายการ)</h3>
+            <p className="text-slate-400 text-xs">ค้นหาเพื่อแก้ไขหรือลบข้อมูลที่ระบุผิดพลาด</p>
+          </div>
+          <div className="relative w-full md:w-64">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30" />
+            <input 
+              type="text"
+              placeholder="ค้นหาชื่อ หรือประเภท..."
+              className="w-full pl-9 pr-4 py-2 rounded-xl bg-slate-50 border-none text-xs focus:ring-2 focus:ring-violet-500 font-medium"
+              value={historySearch}
+              onChange={e => setHistorySearch(e.target.value)}
+            />
+          </div>
+        </div>
+        
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-50 border-b border-black/5">
+                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">วันที่</th>
+                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">ชื่อ-นามสกุล</th>
+                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">ประเภท</th>
+                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-slate-400 text-right">จัดการ</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-black/5">
+              {filteredHistory.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-6 py-12 text-center text-slate-400 text-xs italic">ไม่พบประวัติการลงบันทึก</td>
+                </tr>
+              ) : (
+                filteredHistory.map(record => {
+                  const emp = employees.find(e => e.id === record.employeeId);
+                  if (!emp) return null;
+                  
+                  return (
+                    <tr key={record.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-6 py-4">
+                        <span className="text-xs font-bold text-slate-600">
+                          {new Date(record.startDate).toLocaleDateString('th-TH', { 
+                            day: 'numeric', 
+                            month: 'short', 
+                            year: '2-digit' 
+                          })}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-bold text-slate-800">{emp.name}</span>
+                          <span className="text-[10px] text-slate-400">{emp.position}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                          record.type === 'มาสาย' ? 'bg-amber-100 text-amber-600' :
+                          record.type === 'ลาป่วย' ? 'bg-rose-100 text-rose-600' :
+                          'bg-blue-100 text-blue-600'
+                        }`}>
+                          {getStatusIcon(record.type)}
+                          {record.type}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        {isAdmin && (
+                          <div className="flex items-center justify-end gap-2">
+                            {deleteConfirmId === record.id ? (
+                              <div className="flex items-center gap-1">
+                                <button 
+                                  onClick={() => {
+                                    onDelete(record.id);
+                                    setToast({ message: 'ลบข้อมูลเรียบร้อยแล้ว', type: 'success' });
+                                    setDeleteConfirmId(null);
+                                  }}
+                                  className="px-2 py-1 bg-rose-600 text-white text-[10px] font-bold rounded-lg"
+                                >
+                                  ยืนยันลบ
+                                </button>
+                                <button 
+                                  onClick={() => setDeleteConfirmId(null)}
+                                  className="px-2 py-1 bg-slate-200 text-slate-600 text-[10px] font-bold rounded-lg"
+                                >
+                                  ยกเลิก
+                                </button>
+                              </div>
+                            ) : (
+                              <button 
+                                onClick={() => setDeleteConfirmId(record.id)}
+                                className="w-8 h-8 flex items-center justify-center rounded-xl bg-rose-50 text-rose-500 hover:bg-rose-100 transition-colors"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
