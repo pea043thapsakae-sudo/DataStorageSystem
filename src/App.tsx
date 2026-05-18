@@ -2374,8 +2374,8 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteA
     
     switch (type) {
       case 'มาสาย': return "bg-amber-50 text-amber-600 border-amber-100 ring-1 ring-amber-200";
-      case 'ลาป่วย': return "bg-rose-50 text-rose-600 border-rose-100 ring-1 ring-rose-200";
-      case 'ลากิจ': return "bg-blue-50 text-blue-600 border-blue-100 ring-1 ring-blue-200";
+      case 'ลาป่วย': return "bg-green-50 text-green-600 border-green-100 ring-1 ring-green-200";
+      case 'ลากิจ': return "bg-green-50 text-green-600 border-green-100 ring-1 ring-green-200";
       default: return "bg-violet-50 text-violet-600";
     }
   };
@@ -2546,8 +2546,8 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteA
           <div className="flex flex-wrap justify-center gap-2">
             {[
               { label: 'มาสาย', color: 'bg-amber-400', count: (Object.values(dailyAttendance) as (LeaveRecord | null)[]).filter(r => r?.type === 'มาสาย').length },
-              { label: 'ลากิจ', color: 'bg-blue-400', count: (Object.values(dailyAttendance) as (LeaveRecord | null)[]).filter(r => r?.type === 'ลากิจ').length },
-              { label: 'ลาป่วย', color: 'bg-rose-400', count: (Object.values(dailyAttendance) as (LeaveRecord | null)[]).filter(r => r?.type === 'ลาป่วย').length },
+              { label: 'ลากิจ', color: 'bg-green-400', count: (Object.values(dailyAttendance) as (LeaveRecord | null)[]).filter(r => r?.type === 'ลากิจ').length },
+              { label: 'ลาป่วย', color: 'bg-green-400', count: (Object.values(dailyAttendance) as (LeaveRecord | null)[]).filter(r => r?.type === 'ลาป่วย').length },
             ].map(stat => (
               <div key={stat.label} className="bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-xl flex items-center gap-2">
                 <div className={`w-1.5 h-1.5 rounded-full ${stat.color}`} />
@@ -2618,8 +2618,7 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteA
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold ${
                           record.type === 'มาสาย' ? 'bg-amber-100 text-amber-600' :
-                          record.type === 'ลาป่วย' ? 'bg-rose-100 text-rose-600' :
-                          'bg-blue-100 text-blue-600'
+                          'bg-green-100 text-green-600'
                         }`}>
                           {getStatusIcon(record.type)}
                           {record.type}
@@ -3001,7 +3000,7 @@ function ReportSection({ state }: { state: AppState }) {
                       <th className="p-4 text-[10px] font-bold uppercase tracking-widest opacity-50 sticky left-0 bg-black/10 z-20" rowSpan={2}>ชื่อ-นามสกุล</th>
                       <th className="p-2 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center border-l border-black/5" colSpan={4}>งานนวัตกรรม / KM</th>
                       <th className="p-2 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center border-l border-black/5" colSpan={2}>กิจกรรม</th>
-                      <th className="p-2 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center border-l border-black/5 font-bold text-red-600" colSpan={3}>วันหยุดวันลา / มาสาย</th>
+                      <th className="p-2 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center border-l border-black/5 font-bold text-slate-600" colSpan={3}>วันหยุดวันลา / มาสาย</th>
                     </tr>
                     <tr className="bg-black/5">
                       <th className="px-2 py-3 text-[9px] font-bold uppercase text-center border-l border-black/5 bg-black/[0.02]">นวัตกรรม</th>
@@ -3012,8 +3011,8 @@ function ReportSection({ state }: { state: AppState }) {
                       <th className="px-2 py-3 text-[9px] font-bold uppercase text-center border-l border-black/5 bg-blue-50/30">ภายใน</th>
                       <th className="px-2 py-3 text-[9px] font-bold uppercase text-center bg-blue-50/30 font-bold text-blue-600">%</th>
                       
-                      <th className="px-2 py-3 text-[9px] font-bold uppercase text-center border-l border-black/5 text-red-600 bg-red-50/30">ลาป่วย</th>
-                      <th className="px-2 py-3 text-[9px] font-bold uppercase text-center text-red-600 bg-red-50/30">ลากิจ</th>
+                      <th className="px-2 py-3 text-[9px] font-bold uppercase text-center border-l border-black/5 text-green-600 bg-green-50/30">ลาป่วย</th>
+                      <th className="px-2 py-3 text-[9px] font-bold uppercase text-center text-green-600 bg-green-50/30">ลากิจ</th>
                       <th className="px-2 py-3 text-[9px] font-bold uppercase text-center text-red-600 bg-red-50/30">มาสาย</th>
                     </tr>
                   </thead>
@@ -3030,8 +3029,8 @@ function ReportSection({ state }: { state: AppState }) {
                         <td className="p-2 text-center text-sm border-l border-black/5 font-medium">{row.activity || '-'}</td>
                         <td className="p-2 text-center text-sm font-bold bg-blue-50/10 text-blue-600">{row.activityPercentage || 0}%</td>
                         
-                        <td className="p-2 text-center text-sm border-l border-black/5 text-red-600 font-medium">{row.sick || '-'}</td>
-                        <td className="p-2 text-center text-sm text-red-600 font-medium">{row.business || '-'}</td>
+                        <td className="p-2 text-center text-sm border-l border-black/5 text-green-600 font-medium">{row.sick || '-'}</td>
+                        <td className="p-2 text-center text-sm text-green-600 font-medium">{row.business || '-'}</td>
                         <td className="p-2 text-center text-sm text-red-600 font-medium">{row.late || '-'}</td>
                       </tr>
                     ))}
