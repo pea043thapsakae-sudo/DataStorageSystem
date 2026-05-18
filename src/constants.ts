@@ -25,5 +25,5 @@ export const EMPLOYEES: Employee[] = [
 export const INNOVATION_TYPES = ['นวัตกรรม', 'KM', 'ความคิดสร้างสรรค์'] as const;
 export const KM_SUBTYPES = ['OPL', 'OPK'] as const;
 export const ACTIVITY_TYPES = ['กิจกรรม', 'กิจกรรมภายนอก'] as const;
-export const LEAVE_TYPES = ['มาสาย', 'ลาป่วย', 'ลากิจ', 'ราชการ'] as const;
+export const LEAVE_TYPES = ['มาสาย', 'ลาป่วย', 'ลากิจ'] as const;
 export const LEAVE_DURATIONS = ['ครึ่งวัน (เช้า)', 'ครึ่งวัน (บ่าย)', '1 วัน', '2 วัน', '3 วัน', 'มากกว่า 3 วัน'] as const;

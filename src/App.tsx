@@ -2349,7 +2349,6 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteA
       case 'มาสาย': return <Clock size={16} />;
       case 'ลาป่วย': return <AlertCircle size={16} />;
       case 'ลากิจ': return <User size={16} />;
-      case 'ราชการ': return <Briefcase size={16} />;
       default: return <Calendar size={16} />;
     }
   };
@@ -2361,7 +2360,6 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteA
       case 'มาสาย': return "bg-amber-50 text-amber-600 border-amber-100 ring-1 ring-amber-200";
       case 'ลาป่วย': return "bg-rose-50 text-rose-600 border-rose-100 ring-1 ring-rose-200";
       case 'ลากิจ': return "bg-blue-50 text-blue-600 border-blue-100 ring-1 ring-blue-200";
-      case 'ราชการ': return "bg-indigo-50 text-indigo-600 border-indigo-100 ring-1 ring-indigo-200";
       default: return "bg-violet-50 text-violet-600";
     }
   };
@@ -2524,7 +2522,6 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteA
               { label: 'มาสาย', color: 'bg-amber-500', count: (Object.values(dailyAttendance) as (LeaveRecord | null)[]).filter(r => r?.type === 'มาสาย').length },
               { label: 'ลากิจ', color: 'bg-blue-500', count: (Object.values(dailyAttendance) as (LeaveRecord | null)[]).filter(r => r?.type === 'ลากิจ').length },
               { label: 'ลาป่วย', color: 'bg-rose-500', count: (Object.values(dailyAttendance) as (LeaveRecord | null)[]).filter(r => r?.type === 'ลาป่วย').length },
-              { label: 'ราชการ', color: 'bg-indigo-500', count: (Object.values(dailyAttendance) as (LeaveRecord | null)[]).filter(r => r?.type === 'ราชการ').length },
             ].map(stat => (
               <div key={stat.label} className="bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-xl flex items-center gap-2">
                 <div className={`w-1.5 h-1.5 rounded-full ${stat.color}`} />
@@ -2657,9 +2654,8 @@ function ReportSection({ state }: { state: AppState }) {
       const sick = sumDays('ลาป่วย');
       const business = sumDays('ลากิจ');
       const late = sumDays('มาสาย');
-      const official = sumDays('ราชการ');
       
-      return { ...emp, sick, business, late, official, total: sick + business + late + official };
+      return { ...emp, sick, business, late, total: sick + business + late };
     });
   }, [filteredData.leaves, state.employees]);
 
@@ -2716,8 +2712,7 @@ function ReportSection({ state }: { state: AppState }) {
         externalPercentage: active?.externalPercentage || 0,
         sick: leave?.sick || 0,
         business: leave?.business || 0,
-        late: leave?.late || 0,
-        official: leave?.official || 0
+        late: leave?.late || 0
       };
     });
   }, [innovationSummary, activitySummary, leaveSummary, state.employees]);
@@ -2738,8 +2733,7 @@ function ReportSection({ state }: { state: AppState }) {
       '% ภายใน': s.activityPercentage + '%',
       'ลาป่วย': s.sick,
       'ลากิจ': s.business,
-      'มาสาย': s.late,
-      'ราชการ': s.official
+      'มาสาย': s.late
     }));
     exportToCSV(data, `สรุปรายบุคคล_${filterType}_${new Date().toLocaleDateString()}`);
   };
@@ -2873,7 +2867,7 @@ function ReportSection({ state }: { state: AppState }) {
                       <th className="p-4 text-[10px] font-bold uppercase tracking-widest opacity-50 sticky left-0 bg-black/10 z-20" rowSpan={2}>ชื่อ-นามสกุล</th>
                       <th className="p-2 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center border-l border-black/5" colSpan={4}>งานนวัตกรรม / KM</th>
                       <th className="p-2 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center border-l border-black/5" colSpan={2}>กิจกรรม</th>
-                      <th className="p-2 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center border-l border-black/5 font-bold text-red-600" colSpan={4}>วันหยุดวันลา / มาสาย</th>
+                      <th className="p-2 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center border-l border-black/5 font-bold text-red-600" colSpan={3}>วันหยุดวันลา / มาสาย</th>
                     </tr>
                     <tr className="bg-black/5">
                       <th className="px-2 py-3 text-[9px] font-bold uppercase text-center border-l border-black/5 bg-black/[0.02]">นวัตกรรม</th>
@@ -2887,7 +2881,6 @@ function ReportSection({ state }: { state: AppState }) {
                       <th className="px-2 py-3 text-[9px] font-bold uppercase text-center border-l border-black/5 text-red-600 bg-red-50/30">ลาป่วย</th>
                       <th className="px-2 py-3 text-[9px] font-bold uppercase text-center text-red-600 bg-red-50/30">ลากิจ</th>
                       <th className="px-2 py-3 text-[9px] font-bold uppercase text-center text-red-600 bg-red-50/30">มาสาย</th>
-                      <th className="px-2 py-3 text-[9px] font-bold uppercase text-center text-red-600 bg-red-50/30">ราชการ</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2906,7 +2899,6 @@ function ReportSection({ state }: { state: AppState }) {
                         <td className="p-2 text-center text-sm border-l border-black/5 text-red-600 font-medium">{row.sick || '-'}</td>
                         <td className="p-2 text-center text-sm text-red-600 font-medium">{row.business || '-'}</td>
                         <td className="p-2 text-center text-sm text-red-600 font-medium">{row.late || '-'}</td>
-                        <td className="p-2 text-center text-sm text-red-600 font-medium">{row.official || '-'}</td>
                       </tr>
                     ))}
                   </tbody>
