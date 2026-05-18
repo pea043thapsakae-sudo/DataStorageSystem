@@ -770,7 +770,7 @@ export default function App() {
               <motion.div key="leave" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
                 <LeaveSection 
                   employees={state.employees}
-                  records={state.leaveRecords} 
+                  records={state.leaveRecords.filter(r => r.type !== 'ราชการ' as any)} 
                   onAdd={addLeave} 
                   onUpdate={updateLeave}
                   onDelete={(id) => deleteRecord('leaveRecords', id)}
@@ -1884,6 +1884,7 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
                     <div className="flex gap-2 text-xs font-bold">
                       <span className="px-2 py-1 bg-green-100 text-green-700 rounded-lg">เข้าร่วม: {group.filter(r => r.employeeId !== 1 && r.status === 'เข้าร่วม').length}</span>
                       <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-lg">สลับคู่: {group.filter(r => r.employeeId !== 1 && r.status === 'สลับคู่').length}</span>
+                      <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded-lg">อื่นๆ: {group.filter(r => r.employeeId !== 1 && r.status === 'อื่นๆ').length}</span>
                       <span className="px-2 py-1 bg-red-100 text-red-700 rounded-lg">ไม่เข้าร่วม: {group.filter(r => r.employeeId !== 1 && r.status === 'ไม่เข้าร่วม').length}</span>
                     </div>
                     {isAdmin && (
@@ -1914,12 +1915,13 @@ function ExternalActivitySection({ employees, records, onAdd, onUpdate, onDelete
                       <div key={r.id} className={`p-2 rounded-lg text-[10px] flex flex-col gap-1 ${
                         r.status === 'เข้าร่วม' ? 'bg-green-50 text-green-800' : 
                         r.status === 'ไม่เข้าร่วม' ? 'bg-red-50 text-red-800' : 
-                        r.status === 'สลับคู่' ? 'bg-blue-50 text-blue-800' : 'bg-gray-100 text-gray-800'
+                        r.status === 'สลับคู่' ? 'bg-blue-50 text-blue-800' : 
+                        r.status === 'อื่นๆ' ? 'bg-amber-50 text-amber-800' : 'bg-gray-100 text-gray-800'
                       }`}>
                         <div className="flex items-center justify-between">
                           <span className="truncate font-bold">{emp?.name}</span>
                           <span className="shrink-0 ml-1">
-                            {r.status === 'เข้าร่วม' ? '✓' : r.status === 'ไม่เข้าร่วม' ? '✗' : r.status === 'สลับคู่' ? '⇄' : '?'}
+                            {r.status === 'เข้าร่วม' ? '✓' : r.status === 'ไม่เข้าร่วม' ? '✗' : r.status === 'สลับคู่' ? '⇄' : r.status === 'อื่นๆ' ? '◌' : '?'}
                           </span>
                         </div>
                         {r.status === 'สลับคู่' && swapEmp && (
@@ -2239,8 +2241,9 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="flex gap-2 text-xs font-bold">
-                      <span className="text-green-600">✓ {group.filter(r => r.status === 'เข้าร่วม').length}</span>
-                      <span className="text-red-600">✗ {group.filter(r => r.status === 'ไม่เข้าร่วม').length}</span>
+                      <span className="px-2 py-1 bg-green-100 text-green-700 rounded-lg">เข้าร่วม: {group.filter(r => r.status === 'เข้าร่วม').length}</span>
+                      <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded-lg">อื่นๆ: {group.filter(r => r.status === 'อื่นๆ').length}</span>
+                      <span className="px-2 py-1 bg-red-100 text-red-700 rounded-lg">ไม่เข้าร่วม: {group.filter(r => r.status === 'ไม่เข้าร่วม').length}</span>
                     </div>
                     {isAdmin && (
                       <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -2256,12 +2259,13 @@ function ActivitySection({ employees, records, onAdd, onUpdate, onDeleteGroup, i
                     return (
                       <div key={r.id} className={`p-2 rounded-lg text-[10px] flex flex-col gap-1 ${
                         r.status === 'เข้าร่วม' ? 'bg-green-50 text-green-800' : 
-                        r.status === 'ไม่เข้าร่วม' ? 'bg-red-50 text-red-800' : 'bg-gray-100 text-gray-800'
+                        r.status === 'ไม่เข้าร่วม' ? 'bg-red-50 text-red-800' : 
+                        r.status === 'อื่นๆ' ? 'bg-amber-50 text-amber-800' : 'bg-gray-100 text-gray-800'
                       }`}>
                         <div className="flex items-center justify-between">
                           <span className="truncate font-bold">{emp?.name}</span>
                           <span className="shrink-0 ml-1">
-                            {r.status === 'เข้าร่วม' ? '✓' : r.status === 'ไม่เข้าร่วม' ? '✗' : '?'}
+                            {r.status === 'เข้าร่วม' ? '✓' : r.status === 'ไม่เข้าร่วม' ? '✗' : r.status === 'อื่นๆ' ? '◌' : '?'}
                           </span>
                         </div>
                         {r.status === 'อื่นๆ' && r.reason && (
@@ -2295,12 +2299,17 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteA
     return [...records].sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
   }, [records]);
 
-  const filteredHistory = sortedHistory.filter(r => {
-    const emp = employees.find(e => e.id === r.employeeId);
-    const searchMatch = emp?.name.toLowerCase().includes(historySearch.toLowerCase()) || 
-                       r.type.toLowerCase().includes(historySearch.toLowerCase());
-    return searchMatch;
-  }).slice(0, 30); // Show only last 30 for performance
+  const filteredHistory = useMemo(() => {
+    return sortedHistory.filter(r => {
+      // Exclude 'ราชการ' and only include types that are currently active
+      if (r.type === 'ราชการ' as any) return false;
+      
+      const emp = employees.find(e => e.id === r.employeeId);
+      const searchMatch = emp?.name.toLowerCase().includes(historySearch.toLowerCase()) || 
+                         r.type.toLowerCase().includes(historySearch.toLowerCase());
+      return searchMatch;
+    }).slice(0, 30);
+  }, [sortedHistory, employees, historySearch]);
 
   // Daily attendance for selected date
   const dailyAttendance = useMemo(() => {
@@ -2726,7 +2735,7 @@ function ReportSection({ state }: { state: AppState }) {
     return {
       innovations: state.innovationRecords.filter(r => isMatch(r.date)),
       activities: state.activityRecords.filter(r => isMatch(r.date)),
-      leaves: state.leaveRecords.filter(r => isMatch(r.startDate) || isMatch(r.endDate)),
+      leaves: state.leaveRecords.filter(r => (isMatch(r.startDate) || isMatch(r.endDate)) && r.type !== 'ราชการ' as any),
     };
   }, [state.innovationRecords, state.activityRecords, state.leaveRecords, activeFilter]);
 
