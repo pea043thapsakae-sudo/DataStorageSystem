@@ -2864,6 +2864,23 @@ function ReportSection({
     const uniqueInternalCount = Array.from(new Set(internalActivities.map(r => `${r.date}|${r.title}`))).length;
     const uniqueExternalCount = Array.from(new Set(externalActivities.map(r => `${r.date}|${r.title}`))).length;
 
+    const groupAMemberIds = new Set(
+      state.employees
+        .filter(e => (e.group === 'A' || e.group === 'Both') && e.id !== 1)
+        .map(e => e.id)
+    );
+    const groupBMemberIds = new Set(
+      state.employees
+        .filter(e => (e.group === 'B' || e.group === 'Both') && e.id !== 1)
+        .map(e => e.id)
+    );
+
+    const externalActivitiesA = externalActivities.filter(r => groupAMemberIds.has(r.employeeId));
+    const externalActivitiesB = externalActivities.filter(r => groupBMemberIds.has(r.employeeId));
+
+    const uniqueExternalCountA = new Set(externalActivitiesA.map(r => `${r.date}|${r.title}`)).size;
+    const uniqueExternalCountB = new Set(externalActivitiesB.map(r => `${r.date}|${r.title}`)).size;
+
     return state.employees.map(emp => {
       const records = filteredData.activities.filter(r => 
         (r.employeeId === emp.id && (r.status === 'เข้าร่วม' || r.status === 'อื่นๆ')) ||
@@ -2873,7 +2890,14 @@ function ReportSection({
       const externalCount = records.filter(r => r.type === 'กิจกรรมภายนอก').length;
       
       const activityPercentage = uniqueInternalCount > 0 ? Math.round((activityCount / uniqueInternalCount) * 100) : 0;
-      const externalPercentage = uniqueExternalCount > 0 ? Math.round((externalCount / uniqueExternalCount) * 100) : 0;
+      
+      let denominator = uniqueExternalCount;
+      if (emp.group === 'A') {
+        denominator = uniqueExternalCountA;
+      } else if (emp.group === 'B') {
+        denominator = uniqueExternalCountB;
+      }
+      const externalPercentage = denominator > 0 ? Math.round((externalCount / denominator) * 100) : 0;
       
       return { 
         ...emp, 
@@ -3015,6 +3039,21 @@ function ReportSection({
             tr {
               page-break-inside: avoid !important;
             }
+            thead {
+              display: table-header-group !important;
+            }
+            tbody {
+              display: table-row-group !important;
+            }
+            .print-outer-table {
+              width: 100% !important;
+              border-collapse: collapse !important;
+              border: none !important;
+              background-color: white !important;
+            }
+            .print-outer-table th, .print-outer-table td {
+              border: none !important;
+            }
           }
         `}} />
 
@@ -3084,23 +3123,34 @@ function ReportSection({
               </a>
             </div>
           )}
-          <div className="bg-white rounded-3xl p-8 md:p-12 border border-slate-200/50 shadow-xl space-y-8 print:border-none print:shadow-none print:p-0">
-            {/* Print & PDF Title Header Block */}
-            <div className="text-center space-y-3 pb-6 border-b border-black/10">
-              <h1 className="text-2xl font-black text-black">รายงานสรุปสถิติผลการปฏิบัติงาน</h1>
-              <p className="text-sm font-bold text-slate-700">
-                {reportTab === 'individual' ? 'ตารางสรุปสถิติจำแนกรายบุคคล' : 'วิเคราะห์กิจกรรมภายนอกแยกตามกลุ่ม'}
-              </p>
-              <p className="text-xs font-medium text-slate-500">
-                ช่วงสถิติที่เลือก: {
-                  activeFilter.type === 'all' ? 'ข้อมูลทั้งหมดที่มีในระบบ' :
-                  activeFilter.type === 'day' ? `สถิติรายวัน ประจำวันที่ ${new Date(activeFilter.selectedDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })}` :
-                  activeFilter.type === 'month' ? `สถิติรายเดือน ประจำเดือน ${new Date(activeFilter.selectedDate).toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })}` :
-                  activeFilter.type === 'range' ? `สถิติช่วงรายเดือน ตั้งแต่ ${activeFilter.rangeStart} ถึง ${activeFilter.rangeEnd}` :
-                  `สถิติรายปี ประจำปี พ.ศ. ${new Date(activeFilter.selectedDate).getFullYear() + 543}`
-                }
-              </p>
-            </div>
+          <table className="print-outer-table bg-white rounded-3xl p-8 md:p-12 border border-slate-200/50 shadow-xl print:border-none print:shadow-none print:p-0 w-full">
+            <thead>
+              <tr>
+                <th className="border-none p-0 pb-6 font-normal text-left">
+                  {/* Print & PDF Title Header Block */}
+                  <div className="text-center space-y-3 pb-6 border-b border-black/10 w-full">
+                    <p className="text-xs font-bold text-violet-600 tracking-widest uppercase">ระบบบันทึกข้อมูลพนักงาน</p>
+                    <h1 className="text-2xl font-black text-black">รายงานสรุปสถิติผลการปฏิบัติงาน</h1>
+                    <p className="text-sm font-bold text-slate-700">
+                      {reportTab === 'individual' ? 'ตารางสรุปสถิติจำแนกรายบุคคล' : 'วิเคราะห์กิจกรรมภายนอกแยกตามกลุ่ม'}
+                    </p>
+                    <p className="text-xs font-medium text-slate-500">
+                      ช่วงสถิติที่เลือก: {
+                        activeFilter.type === 'all' ? 'ข้อมูลทั้งหมดที่มีในระบบ' :
+                        activeFilter.type === 'day' ? `สถิติรายวัน ประจำวันที่ ${new Date(activeFilter.selectedDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })}` :
+                        activeFilter.type === 'month' ? `สถิติรายเดือน ประจำเดือน ${new Date(activeFilter.selectedDate).toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })}` :
+                        activeFilter.type === 'range' ? `สถิติช่วงรายเดือน ตั้งแต่ ${activeFilter.rangeStart} ถึง ${activeFilter.rangeEnd}` :
+                        `สถิติรายปี ประจำปี พ.ศ. ${new Date(activeFilter.selectedDate).getFullYear() + 543}`
+                      }
+                    </p>
+                  </div>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="border-none p-0">
+                  <div className="space-y-8 pt-6">
 
             {reportTab === 'individual' ? (
               <div className="space-y-4">
@@ -3241,53 +3291,60 @@ function ReportSection({
             <div className="pt-8 border-t border-slate-100">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
                 {/* Recorder Column */}
-                <div className="flex flex-col items-center justify-between min-h-[140px] space-y-4">
-                  <div className="text-sm font-bold text-slate-600">
-                    ลงชื่อ.......................................................... ผู้บันทึกข้อมูล
+                <div className="flex flex-col items-center justify-start space-y-0.5">
+                  <div className="text-[11px] font-bold text-slate-600 whitespace-nowrap">
+                    ลงชื่อ........................................ ผู้บันทึกข้อมูล
                   </div>
+                  <div className="h-1"></div>
                   <div className="flex flex-col items-center">
-                    <span className="text-sm font-bold text-slate-800">
-                      ( {recorderName ? recorderName : '..........................................................'} )
+                    <span className="text-[10px] font-bold text-slate-800">
+                      ( {recorderName ? recorderName : '........................................'} )
                     </span>
-                    <span className="text-xs text-slate-500 font-medium mt-1">
-                      ตำแหน่ง {recorderPosition ? recorderPosition : '..........................................................'}
+                    <span className="text-[9px] text-slate-500 font-semibold">
+                      ตำแหน่ง {recorderPosition ? recorderPosition : '........................................'}
                     </span>
                   </div>
                 </div>
 
                 {/* Checker Column */}
-                <div className="flex flex-col items-center justify-between min-h-[140px] space-y-4">
-                  <div className="text-sm font-bold text-slate-600">
-                    ลงชื่อ.......................................................... ผู้ตรวจสอบ
+                <div className="flex flex-col items-center justify-start space-y-0.5">
+                  <div className="text-[11px] font-bold text-slate-600 whitespace-nowrap">
+                    ลงชื่อ........................................ ผู้ตรวจสอบ
                   </div>
+                  <div className="h-1"></div>
                   <div className="flex flex-col items-center">
-                    <span className="text-sm font-bold text-slate-800">
-                      ( {checkerName ? checkerName : '..........................................................'} )
+                    <span className="text-[10px] font-bold text-slate-800">
+                      ( {checkerName ? checkerName : '........................................'} )
                     </span>
-                    <span className="text-xs text-slate-500 font-medium mt-1">
-                      ตำแหน่ง {checkerPosition ? checkerPosition : '..........................................................'}
+                    <span className="text-[9px] text-slate-500 font-semibold">
+                      ตำแหน่ง {checkerPosition ? checkerPosition : '........................................'}
                     </span>
                   </div>
                 </div>
 
                 {/* Approver Column */}
-                <div className="flex flex-col items-center justify-between min-h-[140px] space-y-4">
-                  <div className="text-sm font-bold text-slate-600">
-                    ลงชื่อ.......................................................... ผู้บังคับบัญชาหน่วยงาน
+                <div className="flex flex-col items-center justify-start space-y-0.5">
+                  <div className="text-[11px] font-bold text-slate-600 whitespace-nowrap">
+                    ลงชื่อ........................................ ผู้บังคับบัญชาหน่วยงาน
                   </div>
+                  <div className="h-1"></div>
                   <div className="flex flex-col items-center">
-                    <span className="text-sm font-bold text-slate-800">
-                      ( {approverName ? approverName : '..........................................................'} )
+                    <span className="text-[10px] font-bold text-slate-800">
+                      ( {approverName ? approverName : '........................................'} )
                     </span>
-                    <span className="text-xs text-slate-500 font-medium mt-1">
-                      ตำแหน่ง {approverPosition ? approverPosition : '..........................................................'}
+                    <span className="text-[9px] text-slate-500 font-semibold">
+                      ตำแหน่ง {approverPosition ? approverPosition : '........................................'}
                     </span>
                   </div>
                 </div>
               </div>
             </div>
 
-          </div>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     );
@@ -3751,46 +3808,49 @@ function ReportSection({
         </h4>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center pt-4">
           {/* Recorder Column */}
-          <div className="flex flex-col items-center justify-between min-h-[140px] space-y-4">
-            <div className="text-sm font-bold text-slate-600">
-              ลงชื่อ.......................................................... ผู้บันทึกข้อมูล
+          <div className="flex flex-col items-center justify-start space-y-0.5">
+            <div className="text-[11px] font-bold text-slate-600 whitespace-nowrap">
+              ลงชื่อ........................................ ผู้บันทึกข้อมูล
             </div>
+            <div className="h-1"></div>
             <div className="flex flex-col items-center">
-              <span className="text-sm font-bold text-slate-800">
-                ( {recorderName ? recorderName : '..........................................................'} )
+              <span className="text-[10px] font-bold text-slate-800">
+                ( {recorderName ? recorderName : '........................................'} )
               </span>
-              <span className="text-xs text-slate-500 font-medium mt-1">
-                ตำแหน่ง {recorderPosition ? recorderPosition : '..........................................................'}
+              <span className="text-[9px] text-slate-500 font-semibold">
+                ตำแหน่ง {recorderPosition ? recorderPosition : '........................................'}
               </span>
             </div>
           </div>
 
           {/* Checker Column */}
-          <div className="flex flex-col items-center justify-between min-h-[140px] space-y-4">
-            <div className="text-sm font-bold text-slate-600">
-              ลงชื่อ.......................................................... ผู้ตรวจสอบ
+          <div className="flex flex-col items-center justify-start space-y-0.5">
+            <div className="text-[11px] font-bold text-slate-600 whitespace-nowrap">
+              ลงชื่อ........................................ ผู้ตรวจสอบ
             </div>
+            <div className="h-1"></div>
             <div className="flex flex-col items-center">
-              <span className="text-sm font-bold text-slate-800">
-                ( {checkerName ? checkerName : '..........................................................'} )
+              <span className="text-[10px] font-bold text-slate-800">
+                ( {checkerName ? checkerName : '........................................'} )
               </span>
-              <span className="text-xs text-slate-500 font-medium mt-1">
-                ตำแหน่ง {checkerPosition ? checkerPosition : '..........................................................'}
+              <span className="text-[9px] text-slate-500 font-semibold">
+                ตำแหน่ง {checkerPosition ? checkerPosition : '........................................'}
               </span>
             </div>
           </div>
 
           {/* Approver Column */}
-          <div className="flex flex-col items-center justify-between min-h-[140px] space-y-4">
-            <div className="text-sm font-bold text-slate-600">
-              ลงชื่อ.......................................................... ผู้บังคับบัญชาหน่วยงาน
+          <div className="flex flex-col items-center justify-start space-y-0.5">
+            <div className="text-[11px] font-bold text-slate-600 whitespace-nowrap">
+              ลงชื่อ........................................ ผู้บังคับบัญชาหน่วยงาน
             </div>
+            <div className="h-1"></div>
             <div className="flex flex-col items-center">
-              <span className="text-sm font-bold text-slate-800">
-                ( {approverName ? approverName : '..........................................................'} )
+              <span className="text-[10px] font-bold text-slate-800">
+                ( {approverName ? approverName : '........................................'} )
               </span>
-              <span className="text-xs text-slate-500 font-medium mt-1">
-                ตำแหน่ง {approverPosition ? approverPosition : '..........................................................'}
+              <span className="text-[9px] text-slate-500 font-semibold">
+                ตำแหน่ง {approverPosition ? approverPosition : '........................................'}
               </span>
             </div>
           </div>
