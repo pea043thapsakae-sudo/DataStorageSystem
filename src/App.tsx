@@ -35,12 +35,15 @@ import {
   AlertCircle,
   User,
   Briefcase,
-  Check
+  Check,
+  Printer
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { EMPLOYEES, INNOVATION_TYPES, KM_SUBTYPES, ACTIVITY_TYPES, LEAVE_TYPES, LEAVE_DURATIONS } from './constants';
 import { AppState, InnovationRecord, ActivityRecord, LeaveRecord, Admin, Employee } from './types';
 import imageCompression from 'browser-image-compression';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 import { db, auth, initAuth, handleFirestoreError, OperationType, storage, loginWithGoogle, loginAnonymously, onAuthStateChanged, uploadBytesResumable } from './firebase';
 import { 
   collection, 
@@ -611,8 +614,8 @@ export default function App() {
       )}
 
       {/* Sidebar / Navigation */}
-      <div className="flex flex-col md:flex-row min-h-screen">
-        <nav className="w-full md:w-72 bg-white border-r border-violet-100 p-6 flex flex-col gap-8 shadow-[1px_0_10px_rgba(139,92,246,0.05)]">
+      <div className="flex flex-col md:flex-row min-h-screen print:block">
+        <nav className="w-full md:w-72 bg-white border-r border-violet-100 p-6 flex flex-col gap-8 shadow-[1px_0_10px_rgba(139,92,246,0.05)] print:hidden">
           <div className="flex flex-col gap-4">
             <div className="flex items-center gap-4 group cursor-default">
               <div className="w-14 h-14 bg-gradient-to-br from-violet-600 to-violet-800 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-violet-200 group-hover:rotate-6 transition-transform">
@@ -725,7 +728,7 @@ export default function App() {
         />
 
         {/* Main Content */}
-        <main className="flex-1 p-4 md:p-10 overflow-y-auto max-h-screen">
+        <main className="flex-1 p-4 md:p-10 overflow-y-auto max-h-screen print:overflow-visible print:max-h-none print:p-0 print:bg-white">
           <AnimatePresence mode="wait">
             {activeTab === 'innovation' && (
               <motion.div key="innovation" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
@@ -782,7 +785,7 @@ export default function App() {
             )}
             {activeTab === 'report' && (
               <motion.div key="report" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}>
-                <ReportSection state={state} />
+                <ReportSection state={state} setToast={setToast} />
               </motion.div>
             )}
             {activeTab === 'admin' && isAdmin && (
@@ -2369,6 +2372,29 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteA
     }
   };
 
+  const handleDurationChange = async (empId: number, record: LeaveRecord, duration: string) => {
+    if (!isAdmin) return;
+    setIsSaving(empId.toString());
+    try {
+      const recordData = {
+        employeeId: empId,
+        type: record.type,
+        startDate: record.startDate,
+        endDate: record.endDate,
+        duration: duration,
+        reason: record.type,
+        lateDates: record.type === 'มาสาย' ? [record.startDate] : []
+      };
+      await onUpdate(record.id, recordData);
+      setToast({ message: `ปรับระยะเวลาลาเป็น ${duration === '1 วัน' ? 'เต็มวัน' : duration} สำเร็จ`, type: 'success' });
+    } catch (err: any) {
+      console.error("Change duration error:", err);
+      setToast({ message: "เกิดข้อผิดพลาดในการเปลี่ยนระยะเวลา", type: 'error' });
+    } finally {
+      setIsSaving(null);
+    }
+  };
+
   const getStatusIcon = (type: string) => {
     switch (type) {
       case 'มาสาย': return <Clock size={16} />;
@@ -2492,51 +2518,89 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteA
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
-                  {LEAVE_TYPES.map(type => {
-                    const isSelected = currentRecord?.type === type;
-                    const isConfirming = confirmAction?.empId === emp.id && confirmAction?.type === type;
+                <div className="flex flex-col gap-2 shrink-0 items-end">
+                  <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
+                    {LEAVE_TYPES.map(type => {
+                      const isSelected = currentRecord?.type === type;
+                      const isConfirming = confirmAction?.empId === emp.id && confirmAction?.type === type;
+                      
+                      return (
+                        <button
+                          key={type}
+                          onClick={() => handleStatusChange(emp.id, type)}
+                          className={`group relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all ${isConfirming ? 'bg-orange-500 text-white ring-2 ring-orange-200' : getStatusStyle(type, isSelected)}`}
+                          disabled={!isAdmin || isActive}
+                        >
+                          {isConfirming ? (
+                            <div className="flex items-center gap-1">
+                              <CheckCircle2 size={12} className="text-white" />
+                              <span className="whitespace-nowrap">คลิกยืนยัน</span>
+                            </div>
+                          ) : (
+                            <>
+                              {getStatusIcon(type)}
+                              <span>{type}</span>
+                            </>
+                          )}
+                          {isSelected && !isConfirming && (
+                            <motion.div 
+                              layoutId={`active-dot-${emp.id}`}
+                              className="absolute -top-1 -right-1 w-4 h-4 bg-white border-2 border-green-500 rounded-full flex items-center justify-center z-10"
+                              initial={{ scale: 0 }}
+                              animate={{ scale: 1 }}
+                            >
+                              <Check size={10} className="text-green-500" strokeWidth={4} />
+                            </motion.div>
+                          )}
+                        </button>
+                      );
+                    })}
                     
-                    return (
+                    {currentRecord && isAdmin && (
                       <button
-                        key={type}
-                        onClick={() => handleStatusChange(emp.id, type)}
-                        className={`group relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all ${isConfirming ? 'bg-orange-500 text-white ring-2 ring-orange-200' : getStatusStyle(type, isSelected)}`}
-                        disabled={!isAdmin || isActive}
+                        onClick={() => handleStatusChange(emp.id, currentRecord.type)}
+                        className="w-8 h-8 rounded-xl border border-rose-100 text-rose-400 hover:bg-rose-50 hover:text-rose-600 transition-all flex items-center justify-center shrink-0 cursor-pointer"
+                        title="ลบข้อมูลการมาทำงานของวันนี้"
                       >
-                        {isConfirming ? (
-                          <div className="flex items-center gap-1">
-                            <CheckCircle2 size={12} className="text-white" />
-                            <span className="whitespace-nowrap">คลิกยืนยัน</span>
-                          </div>
-                        ) : (
-                          <>
-                            {getStatusIcon(type)}
-                            <span>{type}</span>
-                          </>
-                        )}
-                        {isSelected && !isConfirming && (
-                          <motion.div 
-                            layoutId={`active-dot-${emp.id}`}
-                            className="absolute -top-1 -right-1 w-4 h-4 bg-white border-2 border-green-500 rounded-full flex items-center justify-center z-10"
-                            initial={{ scale: 0 }}
-                            animate={{ scale: 1 }}
-                          >
-                            <Check size={10} className="text-green-500" strokeWidth={4} />
-                          </motion.div>
-                        )}
+                        <Trash2 size={14} />
                       </button>
-                    );
-                  })}
-                  
-                  {currentRecord && isAdmin && (
-                    <button
-                      onClick={() => handleStatusChange(emp.id, currentRecord.type)}
-                      className="w-8 h-8 rounded-xl border border-rose-100 text-rose-400 hover:bg-rose-50 hover:text-rose-600 transition-all flex items-center justify-center shrink-0"
-                      title="ลบข้อมูลการมาทำงานของวันนี้"
+                    )}
+                  </div>
+
+                  {/* Duration Selector for leave types */}
+                  {currentRecord && (currentRecord.type === 'ลาป่วย' || currentRecord.type === 'ลากิจ') && isAdmin && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: -5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="flex items-center gap-1 bg-slate-50 border border-slate-200/60 p-1 rounded-xl"
                     >
-                      <Trash2 size={14} />
-                    </button>
+                      <span className="text-[10px] text-slate-500 px-1.5 font-bold">ระยะเวลาลา:</span>
+                      <button
+                        onClick={() => handleDurationChange(emp.id, currentRecord, '1 วัน')}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${currentRecord.duration === '1 วัน' ? 'bg-violet-600 text-white shadow-sm shadow-violet-500/10' : 'bg-white hover:bg-slate-100 text-slate-600'}`}
+                      >
+                        เต็มวัน
+                      </button>
+                      <button
+                        onClick={() => handleDurationChange(emp.id, currentRecord, 'ครึ่งวัน (เช้า)')}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${currentRecord.duration === 'ครึ่งวัน (เช้า)' ? 'bg-violet-600 text-white shadow-sm shadow-violet-500/10' : 'bg-white hover:bg-slate-100 text-slate-600'}`}
+                      >
+                        ครึ่งวันเช้า
+                      </button>
+                      <button
+                        onClick={() => handleDurationChange(emp.id, currentRecord, 'ครึ่งวัน (บ่าย)')}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${currentRecord.duration === 'ครึ่งวัน (บ่าย)' ? 'bg-violet-600 text-white shadow-sm shadow-violet-500/10' : 'bg-white hover:bg-slate-100 text-slate-600'}`}
+                      >
+                        ครึ่งวันบ่าย
+                      </button>
+                    </motion.div>
+                  )}
+
+                  {/* Read-only duration indicator if not admin */}
+                  {currentRecord && (currentRecord.type === 'ลาป่วย' || currentRecord.type === 'ลากิจ') && !isAdmin && (
+                    <div className="text-[10px] bg-slate-100 text-slate-600 px-2.5 py-1 rounded-lg font-bold">
+                      ระยะเวลา: {currentRecord.duration === '1 วัน' ? 'เต็มวัน' : currentRecord.duration === 'ครึ่งวัน (เช้า)' ? 'ครึ่งวันเช้า' : 'ครึ่งวันบ่าย'}
+                    </div>
                   )}
                 </div>
               </motion.div>
@@ -2625,13 +2689,20 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteA
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                          record.type === 'มาสาย' ? 'bg-amber-100 text-amber-600' :
-                          'bg-green-100 text-green-600'
-                        }`}>
-                          {getStatusIcon(record.type)}
-                          {record.type}
-                        </span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                            record.type === 'มาสาย' ? 'bg-amber-100 text-amber-600' :
+                            'bg-green-100 text-green-600'
+                          }`}>
+                            {getStatusIcon(record.type)}
+                            {record.type}
+                          </span>
+                          {record.type !== 'มาสาย' && record.duration && (
+                            <span className="text-[10px] text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded-md">
+                              {record.duration === '1 วัน' ? 'เต็มวัน' : record.duration === 'ครึ่งวัน (เช้า)' ? 'ครึ่งวันเช้า' : record.duration === 'ครึ่งวัน (บ่าย)' ? 'ครึ่งวันบ่าย' : record.duration}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-right">
                         {isAdmin && (
@@ -2678,12 +2749,46 @@ function LeaveSection({ employees, records, onAdd, onUpdate, onDelete, onDeleteA
   );
 }
 
-function ReportSection({ state }: { state: AppState }) {
+function ReportSection({ 
+  state, 
+  setToast 
+}: { 
+  state: AppState; 
+  setToast: (toast: { message: string, type: 'success' | 'error' } | null) => void;
+}) {
   const [filterType, setFilterType] = useState<'day' | 'month' | 'range' | 'year' | 'all'>('all');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [rangeStart, setRangeStart] = useState(new Date().toISOString().substring(0, 7)); // YYYY-MM
   const [rangeEnd, setRangeEnd] = useState(new Date().toISOString().substring(0, 7)); // YYYY-MM
   const [reportTab, setReportTab] = useState<'individual' | 'external'>('individual');
+
+  // Print states
+  const [showPrintOptions, setShowPrintOptions] = useState(false);
+  const [isPrintViewMode, setIsPrintViewMode] = useState(false);
+
+  // Signatures State
+  const [recorderName, setRecorderName] = useState(() => localStorage.getItem('sig_recorder_name') || '');
+  const [recorderPosition, setRecorderPosition] = useState(() => localStorage.getItem('sig_recorder_position') || '');
+  
+  const [checkerName, setCheckerName] = useState(() => localStorage.getItem('sig_checker_name') || '');
+  const [checkerPosition, setCheckerPosition] = useState(() => localStorage.getItem('sig_checker_position') || '');
+  
+  const [approverName, setApproverName] = useState(() => localStorage.getItem('sig_approver_name') || '');
+  const [approverPosition, setApproverPosition] = useState(() => localStorage.getItem('sig_approver_position') || '');
+
+  const [isInIframe, setIsInIframe] = useState(false);
+  useEffect(() => {
+    setIsInIframe(window.self !== window.top);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('sig_recorder_name', recorderName);
+    localStorage.setItem('sig_recorder_position', recorderPosition);
+    localStorage.setItem('sig_checker_name', checkerName);
+    localStorage.setItem('sig_checker_position', checkerPosition);
+    localStorage.setItem('sig_approver_name', approverName);
+    localStorage.setItem('sig_approver_position', approverPosition);
+  }, [recorderName, recorderPosition, checkerName, checkerPosition, approverName, approverPosition]);
 
   // State to hold the filters that are currently showing in the UI
   const [activeFilter, setActiveFilter] = useState({
@@ -2782,6 +2887,8 @@ function ReportSection({ state }: { state: AppState }) {
 
   const leaveSummary = useMemo(() => {
     const getDays = (durationStr: string) => {
+      if (!durationStr) return 0;
+      if (durationStr.includes('ครึ่งวัน')) return 0.5;
       const match = durationStr.match(/(\d+(\.\d+)?)/);
       return match ? parseFloat(match[1]) : 1;
     };
@@ -2880,9 +2987,397 @@ function ReportSection({ state }: { state: AppState }) {
     exportToCSV(data, `สรุปรายบุคคล_${filterType}_${new Date().toLocaleDateString()}`);
   };
 
+  if (isPrintViewMode) {
+    return (
+      <div className="fixed inset-0 bg-slate-950/20 backdrop-blur-md z-[9990] flex flex-col overflow-y-auto bg-slate-100 print:static print:bg-white print:p-0">
+        {/* Print Style Tag inside Print View */}
+        <style dangerouslySetInnerHTML={{__html: `
+          @media print {
+            @page {
+              size: landscape;
+              margin: 15mm;
+            }
+            body {
+              background-color: white !important;
+              color: black !important;
+            }
+            .overflow-x-auto, .overflow-y-auto {
+              overflow: visible !important;
+              max-height: none !important;
+            }
+            .sticky {
+              position: static !important;
+              background-color: transparent !important;
+            }
+            .shadow-sm, .shadow-md, .shadow-lg, .shadow-xl, .shadow-2xl {
+              box-shadow: none !important;
+            }
+            tr {
+              page-break-inside: avoid !important;
+            }
+          }
+        `}} />
+
+        {/* Sticky Header inside Print View */}
+        <div className="sticky top-0 bg-gradient-to-r from-slate-900 to-slate-950 text-white py-4 px-6 flex flex-col sm:flex-row justify-between items-center gap-4 shadow-xl z-[9999] print:hidden">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center text-white font-bold">
+              <FileText size={20} />
+            </div>
+            <div className="text-left">
+              <h3 className="font-black text-sm text-white">มุมมองพรีวิวตัวอย่างก่อนพิมพ์ (Print Preview Mode)</h3>
+              <p className="text-[10px] text-slate-300">ตารางรายงานสรุปถูกจัดหน้าแบบแนวนอน (Landscape) เพื่อความสวยงามสูงสุด</p>
+            </div>
+          </div>
+          <div className="flex gap-2 items-center shrink-0 flex-wrap">
+            {isInIframe && (
+              <a
+                href={window.location.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-black px-5 py-2.5 rounded-xl text-xs flex items-center gap-2 transition-all cursor-pointer shadow-lg shadow-blue-500/20"
+              >
+                <ExternalLink size={14} /> เปิดระบบในแท็บใหม่เพื่อพิมพ์ (แนะนำ 👍)
+              </a>
+            )}
+            <button
+              onClick={() => {
+                if (isInIframe) {
+                  alert("⚠️ ไม่สามารถพิมพ์จากตรงนี้ได้ เนื่องจากเบราว์เซอร์บล็อกคำสั่งพิมพ์ภายใต้หน้าต่างย่อย (iFrame)\n\nกรุณาคลิกปุ่ม 'เปิดระบบในแท็บใหม่' สีน้ำเงินด้านข้าง เพื่อไปสั่งพิมพ์อย่างถูกต้อง 100% ในแท็บใหม่นะคะ");
+                } else {
+                  window.print();
+                }
+              }}
+              className="bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white font-black px-5 py-2.5 rounded-xl text-xs flex items-center gap-2 transition-all cursor-pointer shadow-lg shadow-emerald-500/20"
+            >
+              <FileText size={14} /> สั่งพิมพ์ด้วยเบราว์เซอร์ / บันทึก PDF
+            </button>
+            <button
+              onClick={() => setIsPrintViewMode(false)}
+              className="bg-white/10 hover:bg-white/20 active:scale-95 text-white font-black px-5 py-2.5 rounded-xl text-xs flex items-center gap-2 transition-all cursor-pointer"
+            >
+              <X size={14} /> ออกจากหน้าพรีวิว
+            </button>
+          </div>
+        </div>
+
+        {/* The Content itself */}
+        <div className="flex-1 p-6 md:p-12 w-full max-w-[1200px] mx-auto print:p-0 print:max-w-none">
+          {isInIframe && (
+            <div className="mb-6 p-5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-3xl flex flex-col md:flex-row items-center justify-between gap-4 text-amber-800 shadow-sm print:hidden">
+              <div className="flex gap-3 text-left">
+                <AlertCircle size={24} className="shrink-0 text-amber-600 mt-0.5" />
+                <div className="space-y-1">
+                  <h4 className="text-sm font-black text-amber-900">⚠️ ตรวจพบระบบทำงานภายใต้หน้าต่างจำลอง (iFrame Sandbox)</h4>
+                  <p className="text-xs leading-relaxed opacity-95 font-medium text-amber-800">
+                    เบราว์เซอร์ปกติจะบล็อกการกดดาวน์โหลด PDF และการสั่งพิมพ์ผ่านหน้าต่างย่อยนี้ กรุณากดเปิดระบบในแท็บใหม่ด้านขวานี้เพื่อแก้ไข และพิมพ์รายงานได้สำเร็จราบรื่น 100% ทันทีค่ะ ข้อมูลของท่านจะไม่หายแน่นอนค่ะ!
+                  </p>
+                </div>
+              </div>
+              <a
+                href={window.location.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="shrink-0 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold px-5 py-3 rounded-2xl text-xs flex items-center gap-2 transition-all shadow-md shadow-blue-600/10 animate-pulse"
+              >
+                <ExternalLink size={14} /> เปิดระบบในแท็บใหม่ (พิมพ์ได้ 100%)
+              </a>
+            </div>
+          )}
+          <div className="bg-white rounded-3xl p-8 md:p-12 border border-slate-200/50 shadow-xl space-y-8 print:border-none print:shadow-none print:p-0">
+            {/* Print & PDF Title Header Block */}
+            <div className="text-center space-y-3 pb-6 border-b border-black/10">
+              <h1 className="text-2xl font-black text-black">รายงานสรุปสถิติผลการปฏิบัติงาน</h1>
+              <p className="text-sm font-bold text-slate-700">
+                {reportTab === 'individual' ? 'ตารางสรุปสถิติจำแนกรายบุคคล' : 'วิเคราะห์กิจกรรมภายนอกแยกตามกลุ่ม'}
+              </p>
+              <p className="text-xs font-medium text-slate-500">
+                ช่วงสถิติที่เลือก: {
+                  activeFilter.type === 'all' ? 'ข้อมูลทั้งหมดที่มีในระบบ' :
+                  activeFilter.type === 'day' ? `สถิติรายวัน ประจำวันที่ ${new Date(activeFilter.selectedDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })}` :
+                  activeFilter.type === 'month' ? `สถิติรายเดือน ประจำเดือน ${new Date(activeFilter.selectedDate).toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })}` :
+                  activeFilter.type === 'range' ? `สถิติช่วงรายเดือน ตั้งแต่ ${activeFilter.rangeStart} ถึง ${activeFilter.rangeEnd}` :
+                  `สถิติรายปี ประจำปี พ.ศ. ${new Date(activeFilter.selectedDate).getFullYear() + 543}`
+                }
+              </p>
+            </div>
+
+            {reportTab === 'individual' ? (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3 print:hidden">
+                  <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center text-violet-600">
+                    <Users size={20} />
+                  </div>
+                  <h3 className="text-xl font-bold">ตารางสรุปสถิติจำแนกรายบุคคล</h3>
+                </div>
+                
+                <div className="bg-white rounded-3xl border border-black/5 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse min-w-[1000px]">
+                      <thead>
+                        <tr className="bg-black/5">
+                          <th className="p-4 text-[10px] font-bold uppercase tracking-widest opacity-50 sticky left-0 bg-black/10 z-20" rowSpan={2}>ชื่อ-นามสกุล</th>
+                          <th className="p-2 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center border-l border-black/5" colSpan={4}>งานนวัตกรรม / KM</th>
+                          <th className="p-2 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center border-l border-black/5" colSpan={2}>กิจกรรม</th>
+                          <th className="p-2 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center border-l border-black/5 font-bold text-slate-600" colSpan={3}>วันหยุดวันลา / มาสาย</th>
+                        </tr>
+                        <tr className="bg-black/5">
+                          <th className="px-2 py-3 text-[9px] font-bold uppercase text-center border-l border-black/5 bg-black/[0.02]">นวัตกรรม</th>
+                          <th className="px-2 py-3 text-[9px] font-bold uppercase text-center bg-black/[0.02]">OPL</th>
+                          <th className="px-2 py-3 text-[9px] font-bold uppercase text-center bg-black/[0.02]">OPK</th>
+                          <th className="px-2 py-3 text-[9px] font-bold uppercase text-center bg-black/[0.02]">ความคิดสร้างสรรค์</th>
+                          
+                          <th className="px-2 py-3 text-[9px] font-bold uppercase text-center border-l border-black/5 bg-blue-50/30">ภายใน</th>
+                          <th className="px-2 py-3 text-[9px] font-bold uppercase text-center bg-blue-50/30 font-bold text-blue-600">%</th>
+                          
+                          <th className="px-2 py-3 text-[9px] font-bold uppercase text-center border-l border-black/5 text-green-600 bg-green-50/30">ลาป่วย</th>
+                          <th className="px-2 py-3 text-[9px] font-bold uppercase text-center text-green-600 bg-green-50/30">ลากิจ</th>
+                          <th className="px-2 py-3 text-[9px] font-bold uppercase text-center text-red-600 bg-red-50/30">มาสาย</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {comprehensiveSummary.map(row => (
+                          <tr key={row.id} className="border-b border-black/5 hover:bg-black/[0.01] transition-colors">
+                            <td className="p-4 font-bold text-sm sticky left-0 bg-white z-10 border-r border-black/5">{row.name}</td>
+                            
+                            <td className="p-2 text-center text-sm border-l border-black/5">{row.innovation || '-'}</td>
+                            <td className="p-2 text-center text-sm">{row.kmOpl || '-'}</td>
+                            <td className="p-2 text-center text-sm">{row.kmOpk || '-'}</td>
+                            <td className="p-2 text-center text-sm">{row.creativity || '-'}</td>
+                            
+                            <td className="p-2 text-center text-sm border-l border-black/5 font-medium">{row.activity || '-'}</td>
+                            <td className="p-2 text-center text-sm font-bold bg-blue-50/10 text-blue-600">{row.activityPercentage || 0}%</td>
+                            
+                            <td className="p-2 text-center text-sm border-l border-black/5 text-green-600 font-medium">{row.sick || '-'}</td>
+                            <td className="p-2 text-center text-sm text-green-600 font-medium">{row.business || '-'}</td>
+                            <td className="p-2 text-center text-sm text-red-600 font-medium">{row.late || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="flex items-center gap-3 print:hidden">
+                  <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600">
+                    <ShieldCheckIcon size={20} />
+                  </div>
+                  <h3 className="text-xl font-bold">วิเคราะห์กิจกรรมภายนอกแยกตามกลุ่ม</h3>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Table Group A */}
+                  <div className="bg-white rounded-3xl border border-black/5 overflow-hidden flex flex-col">
+                    <div className="p-4 bg-violet-600 text-white flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Shield size={18} />
+                        <h4 className="font-bold">สรุปรายบุคคล กลุ่ม A</h4>
+                      </div>
+                      <span className="text-[10px] font-bold opacity-75">กิจกรรมภายนอก</span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50">
+                            <th className="p-3 text-[10px] font-bold uppercase tracking-widest opacity-50">ชื่อ-นามสกุล</th>
+                            <th className="p-3 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center">เข้าร่วม</th>
+                            <th className="p-3 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center">%</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {comprehensiveSummary
+                            .filter(emp => (emp.group === 'A' || emp.group === 'Both') && emp.id !== 1)
+                            .map(row => (
+                            <tr key={row.id} className="border-b border-black/5 hover:bg-black/[0.01] transition-colors">
+                              <td className="p-3 font-bold text-sm">{row.name}</td>
+                              <td className="p-3 text-center text-sm font-medium">{row.external || '-'}</td>
+                              <td className="p-3 text-center text-sm font-black text-violet-600 bg-violet-50/30">{row.externalPercentage || 0}%</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Table Group B */}
+                  <div className="bg-white rounded-3xl border border-black/5 overflow-hidden flex flex-col">
+                    <div className="p-4 bg-blue-600 text-white flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheckIcon size={18} />
+                        <h4 className="font-bold">สรุปรายบุคคล กลุ่ม B</h4>
+                      </div>
+                      <span className="text-[10px] font-bold opacity-75">กิจกรรมภายนอก</span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50">
+                            <th className="p-3 text-[10px] font-bold uppercase tracking-widest opacity-50">ชื่อ-นามสกุล</th>
+                            <th className="p-3 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center">เข้าร่วม</th>
+                            <th className="p-3 text-[10px] font-bold uppercase tracking-widest opacity-50 text-center">%</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {comprehensiveSummary
+                            .filter(emp => (emp.group === 'B' || emp.group === 'Both') && emp.id !== 1)
+                            .map(row => (
+                            <tr key={row.id} className="border-b border-black/5 hover:bg-black/[0.01] transition-colors">
+                              <td className="p-3 font-bold text-sm">{row.name}</td>
+                              <td className="p-3 text-center text-sm font-medium">{row.external || '-'}</td>
+                              <td className="p-3 text-center text-sm font-black text-blue-600 bg-blue-50/30">{row.externalPercentage || 0}%</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Signature Block */}
+            <div className="pt-8 border-t border-slate-100">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
+                {/* Recorder Column */}
+                <div className="flex flex-col items-center justify-between min-h-[140px] space-y-4">
+                  <div className="text-sm font-bold text-slate-600">
+                    ลงชื่อ.......................................................... ผู้บันทึกข้อมูล
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <span className="text-sm font-bold text-slate-800">
+                      ( {recorderName ? recorderName : '..........................................................'} )
+                    </span>
+                    <span className="text-xs text-slate-500 font-medium mt-1">
+                      ตำแหน่ง {recorderPosition ? recorderPosition : '..........................................................'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Checker Column */}
+                <div className="flex flex-col items-center justify-between min-h-[140px] space-y-4">
+                  <div className="text-sm font-bold text-slate-600">
+                    ลงชื่อ.......................................................... ผู้ตรวจสอบ
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <span className="text-sm font-bold text-slate-800">
+                      ( {checkerName ? checkerName : '..........................................................'} )
+                    </span>
+                    <span className="text-xs text-slate-500 font-medium mt-1">
+                      ตำแหน่ง {checkerPosition ? checkerPosition : '..........................................................'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Approver Column */}
+                <div className="flex flex-col items-center justify-between min-h-[140px] space-y-4">
+                  <div className="text-sm font-bold text-slate-600">
+                    ลงชื่อ.......................................................... ผู้บังคับบัญชาหน่วยงาน
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <span className="text-sm font-bold text-slate-800">
+                      ( {approverName ? approverName : '..........................................................'} )
+                    </span>
+                    <span className="text-xs text-slate-500 font-medium mt-1">
+                      ตำแหน่ง {approverPosition ? approverPosition : '..........................................................'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-20">
-      <header className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+
+      {/* Embedded CSS Style Tag for flawless Print/PDF layout */}
+      <style dangerouslySetInnerHTML={{__html: `
+        @media print {
+          @page {
+            size: landscape;
+            margin: 15mm;
+          }
+          body {
+            background-color: white !important;
+            color: black !important;
+          }
+          /* Ensure containers expand and do not clip or have scrolls */
+          .overflow-x-auto, .overflow-y-auto {
+            overflow: visible !important;
+            max-height: none !important;
+          }
+          /* Ensure full width */
+          .max-w-6xl {
+            max-width: 100% !important;
+            width: 100% !important;
+            padding-bottom: 0 !important;
+          }
+          /* Disable sticky positioning so table columns align correctly in PDF */
+          .sticky {
+            position: static !important;
+            background-color: transparent !important;
+          }
+          /* Remove interactive shadows */
+          .shadow-sm, .shadow-md, .shadow-lg, .shadow-xl, .shadow-2xl {
+            box-shadow: none !important;
+          }
+          /* Prevent page breaks inside cards or tables if possible */
+          tr {
+            page-break-inside: avoid !important;
+          }
+        }
+
+        /* High-quality rendering styles specifically for html2canvas to PDF */
+        .pdf-generating {
+          width: 1120px !important;
+          max-width: 1120px !important;
+          background-color: white !important;
+          color: black !important;
+          padding: 40px !important;
+          border-radius: 0px !important;
+          box-shadow: none !important;
+        }
+        .pdf-generating .overflow-x-auto {
+          overflow: visible !important;
+          max-height: none !important;
+        }
+        .pdf-generating .sticky {
+          position: static !important;
+          background-color: transparent !important;
+        }
+        .pdf-generating table {
+          width: 100% !important;
+          border-collapse: collapse !important;
+        }
+        .pdf-generating th {
+          background-color: #f1f5f9 !important;
+          color: #0f172a !important;
+          font-weight: bold !important;
+          border: 1px solid #cbd5e1 !important;
+        }
+        .pdf-generating td {
+          border: 1px solid #e2e8f0 !important;
+          background-color: white !important;
+          color: #1e293b !important;
+        }
+        .pdf-generating .bg-white {
+          background-color: white !important;
+        }
+        .pdf-generating .bg-slate-50 {
+          background-color: #f8fafc !important;
+        }
+        .pdf-generating .shadow-sm {
+          box-shadow: none !important;
+        }
+      `}} />
+
+      <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 print:hidden">
         <div>
           <h2 className="text-3xl font-bold serif">รายงานสรุปผล</h2>
           <div className="flex bg-white border border-black/5 rounded-xl p-1 mt-4 inline-flex">
@@ -2971,20 +3466,50 @@ function ReportSection({ state }: { state: AppState }) {
             </div>
           )}
           
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button 
               onClick={handleApplyFilter} 
               className="bg-white text-violet-600 border-2 border-violet-600 px-6 py-2.5 rounded-xl text-xs font-bold hover:bg-violet-50 transition-all flex items-center gap-2"
             >
               <Search size={16} /> ประมวลผลข้อมูล
             </button>
-            <button onClick={exportComprehensive} className="bg-violet-600 text-white px-6 py-2.5 rounded-xl text-xs font-bold hover:bg-violet-700 transition-all shadow-lg shadow-violet-600/20 flex items-center gap-2">
+            <button onClick={exportComprehensive} className="bg-violet-600/10 text-violet-700 px-6 py-2.5 rounded-xl text-xs font-bold hover:bg-violet-100 transition-all flex items-center gap-2">
               <Download size={16} /> ส่งออกข้อมูลสรุป (CSV)
+            </button>
+            <button 
+              onClick={() => {
+                if (isInIframe) {
+                  setShowPrintOptions(true);
+                } else {
+                  setIsPrintViewMode(true);
+                }
+              }} 
+              className="bg-emerald-600 text-white px-6 py-2.5 rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-600/20 flex items-center gap-2 cursor-pointer"
+            >
+              <Printer size={16} /> พิมพ์รายงานสรุป
             </button>
           </div>
         </div>
       </header>
 
+
+      <div id="report-pdf-content" className="space-y-8 p-1">
+        {/* Print Title Header Block */}
+        <div className="hidden print:block text-center space-y-3 pb-6 border-b border-black/10">
+          <h1 className="text-2xl font-black text-black">รายงานสรุปสถิติผลการปฏิบัติงาน</h1>
+          <p className="text-sm font-bold text-slate-700">
+            {reportTab === 'individual' ? 'ตารางสรุปสถิติจำแนกรายบุคคล' : 'วิเคราะห์กิจกรรมภายนอกแยกตามกลุ่ม'}
+          </p>
+          <p className="text-xs font-medium text-slate-500">
+            ช่วงสถิติที่เลือก: {
+              activeFilter.type === 'all' ? 'ข้อมูลทั้งหมดที่มีในระบบ' :
+              activeFilter.type === 'day' ? `สถิติรายวัน ประจำวันที่ ${new Date(activeFilter.selectedDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })}` :
+              activeFilter.type === 'month' ? `สถิติรายเดือน ประจำเดือน ${new Date(activeFilter.selectedDate).toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })}` :
+              activeFilter.type === 'range' ? `สถิติช่วงรายเดือน ตั้งแต่ ${activeFilter.rangeStart} ถึง ${activeFilter.rangeEnd}` :
+              `สถิติรายปี ประจำปี พ.ศ. ${new Date(activeFilter.selectedDate).getFullYear() + 543}`
+            }
+          </p>
+        </div>
 
       <AnimatePresence mode="wait">
         {reportTab === 'individual' ? (
@@ -3134,6 +3659,282 @@ function ReportSection({ state }: { state: AppState }) {
           </motion.section>
         )}
       </AnimatePresence>
+
+      {/* Signature Configuration Inputs */}
+      <div className="bg-white rounded-3xl p-6 border border-black/5 shadow-sm space-y-4 print:hidden">
+        <div className="flex items-center gap-2 pb-2 border-b border-black/5">
+          <FileText size={18} className="text-violet-600" />
+          <h3 className="text-sm font-bold">กรอกข้อมูลผู้ลงนามท้ายรายงาน</h3>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Recorder */}
+          <div className="space-y-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+            <label className="text-xs font-bold text-violet-700 block">1. ผู้บันทึกข้อมูล</label>
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">ชื่อ-นามสกุล</label>
+              <input 
+                type="text" 
+                placeholder="เช่น นายสมชาย ดีใจ" 
+                value={recorderName} 
+                onChange={e => setRecorderName(e.target.value)} 
+                className="w-full mt-1 px-3 py-2 bg-white border border-black/5 rounded-xl text-xs font-bold focus:ring-2 focus:ring-violet-500"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">ตำแหน่ง</label>
+              <input 
+                type="text" 
+                placeholder="เช่น วิศวกรระดับ 6" 
+                value={recorderPosition} 
+                onChange={e => setRecorderPosition(e.target.value)} 
+                className="w-full mt-1 px-3 py-2 bg-white border border-black/5 rounded-xl text-xs font-bold focus:ring-2 focus:ring-violet-500"
+              />
+            </div>
+          </div>
+          
+          {/* Checker */}
+          <div className="space-y-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+            <label className="text-xs font-bold text-violet-700 block">2. ผู้ตรวจสอบ</label>
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">ชื่อ-นามสกุล</label>
+              <input 
+                type="text" 
+                placeholder="เช่น นางสาวรักเรียน วงศ์ดี" 
+                value={checkerName} 
+                onChange={e => setCheckerName(e.target.value)} 
+                className="w-full mt-1 px-3 py-2 bg-white border border-black/5 rounded-xl text-xs font-bold focus:ring-2 focus:ring-violet-500"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">ตำแหน่ง</label>
+              <input 
+                type="text" 
+                placeholder="เช่น หัวหน้าแผนกบริการลูกค้า" 
+                value={checkerPosition} 
+                onChange={e => setCheckerPosition(e.target.value)} 
+                className="w-full mt-1 px-3 py-2 bg-white border border-black/5 rounded-xl text-xs font-bold focus:ring-2 focus:ring-violet-500"
+              />
+            </div>
+          </div>
+
+          {/* Approver */}
+          <div className="space-y-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+            <label className="text-xs font-bold text-violet-700 block">3. ผู้บังคับบัญชาหน่วยงาน</label>
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">ชื่อ-นามสกุล</label>
+              <input 
+                type="text" 
+                placeholder="เช่น นายพีระศักดิ์ ยิ่งใหญ่" 
+                value={approverName} 
+                onChange={e => setApproverName(e.target.value)} 
+                className="w-full mt-1 px-3 py-2 bg-white border border-black/5 rounded-xl text-xs font-bold focus:ring-2 focus:ring-violet-500"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">ตำแหน่ง</label>
+              <input 
+                type="text" 
+                placeholder="เช่น ผู้จัดการไฟฟ้าอำเภอทับสะแก" 
+                value={approverPosition} 
+                onChange={e => setApproverPosition(e.target.value)} 
+                className="w-full mt-1 px-3 py-2 bg-white border border-black/5 rounded-xl text-xs font-bold focus:ring-2 focus:ring-violet-500"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Beautiful Signature Boxes for Screen Preview & Printing */}
+      <div className="bg-white rounded-3xl p-8 border border-black/5 shadow-sm space-y-6 print:border-none print:shadow-none print:p-0 print:mt-12">
+        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider pb-2 border-b border-black/5 print:hidden">
+          ตัวอย่างส่วนลงชื่อท้ายรายงาน
+        </h4>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center pt-4">
+          {/* Recorder Column */}
+          <div className="flex flex-col items-center justify-between min-h-[140px] space-y-4">
+            <div className="text-sm font-bold text-slate-600">
+              ลงชื่อ.......................................................... ผู้บันทึกข้อมูล
+            </div>
+            <div className="flex flex-col items-center">
+              <span className="text-sm font-bold text-slate-800">
+                ( {recorderName ? recorderName : '..........................................................'} )
+              </span>
+              <span className="text-xs text-slate-500 font-medium mt-1">
+                ตำแหน่ง {recorderPosition ? recorderPosition : '..........................................................'}
+              </span>
+            </div>
+          </div>
+
+          {/* Checker Column */}
+          <div className="flex flex-col items-center justify-between min-h-[140px] space-y-4">
+            <div className="text-sm font-bold text-slate-600">
+              ลงชื่อ.......................................................... ผู้ตรวจสอบ
+            </div>
+            <div className="flex flex-col items-center">
+              <span className="text-sm font-bold text-slate-800">
+                ( {checkerName ? checkerName : '..........................................................'} )
+              </span>
+              <span className="text-xs text-slate-500 font-medium mt-1">
+                ตำแหน่ง {checkerPosition ? checkerPosition : '..........................................................'}
+              </span>
+            </div>
+          </div>
+
+          {/* Approver Column */}
+          <div className="flex flex-col items-center justify-between min-h-[140px] space-y-4">
+            <div className="text-sm font-bold text-slate-600">
+              ลงชื่อ.......................................................... ผู้บังคับบัญชาหน่วยงาน
+            </div>
+            <div className="flex flex-col items-center">
+              <span className="text-sm font-bold text-slate-800">
+                ( {approverName ? approverName : '..........................................................'} )
+              </span>
+              <span className="text-xs text-slate-500 font-medium mt-1">
+                ตำแหน่ง {approverPosition ? approverPosition : '..........................................................'}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
+
+      {/* Modal Selection for Print and PDF Options */}
+      {/* Modal Selection for Print Options */}
+      <AnimatePresence>
+        {showPrintOptions && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl border border-black/5"
+            >
+              {/* Modal Header */}
+              <div className="p-6 bg-gradient-to-r from-violet-600 to-indigo-600 text-white flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center text-white">
+                    <Printer size={20} />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-base text-white">เตรียมพิมพ์รายงานสรุป</h3>
+                    <p className="text-[10px] text-white/70">สำหรับรายงานสถิติผลการปฏิบัติงาน</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowPrintOptions(false)} 
+                  className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors text-white cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-6 space-y-6">
+                {isInIframe ? (
+                  <div className="space-y-4">
+                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex gap-3 text-amber-800">
+                      <AlertCircle size={24} className="shrink-0 mt-0.5 text-amber-600" />
+                      <div className="space-y-1">
+                        <p className="text-xs font-black text-amber-900">⚠️ พบข้อจำกัดของหน้าต่างจำลอง (iFrame Sandbox)</p>
+                        <p className="text-[11px] leading-relaxed opacity-90 font-medium text-amber-700">
+                          ขณะนี้หน้าต่างระบบกำลังแสดงผลภายใต้ iFrame จำลองของ Google AI Studio ซึ่งเบราว์เซอร์จะบล็อกคำสั่งพิมพ์ไว้โดยอัตโนมัติค่ะ เพื่อให้ท่านสั่งพิมพ์รายงานเป็นรูปเล่มได้อย่างถูกต้องสมบูรณ์แบบ 100% กรุณาเปิดแอปในแท็บเต็มจอด้านล่างนี้นะคะ ข้อมูลงานของท่านจะอยู่ครบแน่นอนค่ะ!
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="p-1 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-2xl shadow-lg animate-pulse">
+                      <a
+                        href={window.location.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => setShowPrintOptions(false)}
+                        className="w-full text-left p-4 rounded-[14px] bg-white hover:bg-slate-50 transition-all flex items-start gap-4 group cursor-pointer"
+                      >
+                        <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-all shrink-0">
+                          <ExternalLink size={20} />
+                        </div>
+                        <div className="space-y-1 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[9px] font-bold px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full">วิธีที่ถูกต้อง 💡</span>
+                          </div>
+                          <p className="text-sm font-black text-slate-800 group-hover:text-blue-700 transition-colors">
+                            คลิกเปิดหน้าแอปในแท็บใหม่เต็มจอ (สำคัญมาก)
+                          </p>
+                          <p className="text-xs text-slate-500 font-medium leading-relaxed">
+                            ระบบจะเปิดหน้านี้ในแท็บแยกใหม่ทันที โดยที่ข้อมูลทั้งหมดจะยังอยู่ครบ เพื่อให้ท่านสั่งพิมพ์หรือพรีวิวก่อนพิมพ์ได้ตามใจชอบโดยไม่มีสิ่งกีดขวางค่ะ
+                          </p>
+                        </div>
+                      </a>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex gap-3 text-emerald-800">
+                    <CheckCircle2 size={20} className="shrink-0 mt-0.5 text-emerald-600" />
+                    <div className="space-y-1">
+                      <p className="text-xs font-bold text-emerald-900">เปิดแอปเต็มจอเรียบร้อยแล้ว ✨</p>
+                      <p className="text-[11px] leading-relaxed opacity-95 font-medium text-emerald-700">
+                        พร้อมทำงานร่วมกับเครื่องพิมพ์เต็มที่ สามารถเข้าสู่โหมดเตรียมพิมพ์และกดสั่งพิมพ์ได้อย่างราบรื่น 100% เลยค่ะ
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-4">
+                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-1">
+                    เลือกดำเนินการ:
+                  </div>
+
+                  {/* Option 1: Print View Mode (Overlay) */}
+                  <button
+                    onClick={() => {
+                      if (isInIframe) {
+                        alert("⚠️ แนะนำให้ท่านกดปุ่มสีน้ำเงิน 'เปิดหน้าแอปในแท็บใหม่เต็มจอ' ด้านบนสุดก่อนนะคะ เพื่อระบบสามารถพิมพ์เอกสารได้สำเร็จอย่างสมบูรณ์โดยไม่ถูกระบบจำลองบล็อกคำสั่งค่ะ");
+                      } else {
+                        setShowPrintOptions(false);
+                        setIsPrintViewMode(true);
+                      }
+                    }}
+                    className={`w-full text-left p-4 rounded-2xl border-2 transition-all flex items-start gap-4 group cursor-pointer ${
+                      isInIframe 
+                        ? 'border-slate-100 bg-slate-50/50 opacity-75 hover:border-amber-300 hover:bg-amber-50/20' 
+                        : 'border-emerald-100 hover:border-emerald-600 hover:bg-emerald-50/50'
+                    }`}
+                  >
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all shrink-0 ${
+                      isInIframe 
+                        ? 'bg-slate-200 text-slate-500 group-hover:bg-amber-500 group-hover:text-white' 
+                        : 'bg-emerald-100 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white'
+                    }`}>
+                      <Eye size={20} />
+                    </div>
+                    <div className="space-y-1 flex-1">
+                      <p className="text-sm font-bold text-slate-800 group-hover:text-emerald-700 transition-colors flex items-center gap-2">
+                        <span>เปิดโหมดเตรียมพิมพ์ / พรีวิวรายงานสรุป (แนวนอน Landscape)</span>
+                        {isInIframe && <span className="text-[9px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">เปิดในแท็บใหม่เท่านั้น</span>}
+                      </p>
+                      <p className="text-xs text-slate-500 font-medium leading-relaxed">
+                        เปิดแสดงหน้าพรีวิวจัดตารางแนวนอนที่สวยงามและเป็นระเบียบ พร้อมปุ่มพิมพ์เอกสารและบันทึกข้อมูลของท่านอย่างเรียบร้อย
+                      </p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+                <button
+                  onClick={() => setShowPrintOptions(false)}
+                  className="px-5 py-2 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer"
+                >
+                  ปิดหน้าต่าง
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+
     </div>
   );
 }
