@@ -3217,7 +3217,7 @@ function ReportSection({
                   <h3 className="text-xl font-bold">วิเคราะห์กิจกรรมภายนอกแยกตามกลุ่ม</h3>
                 </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-6">
                   {/* Table Group A */}
                   <div className="bg-white rounded-3xl border border-black/5 overflow-hidden flex flex-col">
                     <div className="p-4 bg-violet-600 text-white flex items-center justify-between">
@@ -3645,7 +3645,7 @@ function ReportSection({
               <h3 className="text-xl font-bold">วิเคราะห์กิจกรรมภายนอกแยกตามกลุ่ม</h3>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-6">
               {/* Table Group A */}
               <div className="bg-white rounded-3xl shadow-sm border border-black/5 overflow-hidden flex flex-col">
                 <div className="p-4 bg-violet-600 text-white flex items-center justify-between">
